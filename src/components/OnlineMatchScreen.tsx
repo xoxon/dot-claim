@@ -16,13 +16,14 @@ const SERVER_URL = MATCH_SERVER_URL;
 
 type ConnectionState = 'connecting' | 'waiting' | 'matched' | 'playing' | 'opponent_left' | 'error';
 
-export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onProfileUpdated }: {
+export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onPlayAgain, onProfileUpdated }: {
   difficulty: Difficulty;
   profile: PlayerProfile | null;
   token: string | null;
   soundEnabled: boolean;
   hapticsEnabled: boolean;
   onBack: () => void;
+  onPlayAgain: () => void;
   onProfileUpdated: (profile: PlayerProfile) => void;
 }) {
   const { width } = useWindowDimensions();
@@ -90,7 +91,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
       } : current);
       const assignedColor = colorRef.current;
       const outcome = !assignedColor || nextResult.winner === 'draw' ? 'draw' : nextResult.winner === assignedColor ? 'win' : 'loss';
-      const nextProfile = assignedColor ? nextResult.players[assignedColor] : null;
+      const nextProfile = Object.values(nextResult.players).find((candidate) => candidate.id === profile?.id) ?? (assignedColor ? nextResult.players[assignedColor] : null);
       if (nextProfile) onProfileUpdated(nextProfile);
       setResult(nextResult);
       playSound(outcome === 'win' ? 'victory' : 'defeat');
@@ -186,12 +187,15 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
 
   const player = color && match ? match.players[color] : profile;
   const opponent = color && match ? match.players[color === 'blue' ? 'red' : 'blue'] : null;
-  const didWin = color && result ? result.winner === color : false;
+  const resultColor: MatchColor | null = result && profile
+    ? result.players.blue.id === profile.id ? 'blue' : result.players.red.id === profile.id ? 'red' : color
+    : color;
+  const didWin = Boolean(result && resultColor && result.winner === resultColor);
   const didDraw = result?.winner === 'draw';
-  const ownReward = color && result ? result.rewards[color] : null;
-  const resultOpponent = color && result ? result.players[color === 'blue' ? 'red' : 'blue'] : opponent;
-  const finalPlayerScore = color && result ? result.scores[color] : localGame?.playerScore;
-  const finalOpponentScore = color && result ? result.scores[color === 'blue' ? 'red' : 'blue'] : localGame?.rivalScore;
+  const ownReward = result && resultColor ? result.rewards[resultColor] : null;
+  const resultOpponent = result && resultColor ? result.players[resultColor === 'blue' ? 'red' : 'blue'] : opponent;
+  const finalPlayerScore = result && resultColor ? result.scores[resultColor] : localGame?.playerScore;
+  const finalOpponentScore = result && resultColor ? result.scores[resultColor === 'blue' ? 'red' : 'blue'] : localGame?.rivalScore;
   const resultTitle = didWin ? 'Eşleşmeyi kazandın!' : didDraw ? 'Eşleşme berabere.' : 'Rövanş vakti.';
   return (
     <View style={styles.screen}>
@@ -237,6 +241,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
             </View>}
             {ownReward?.streakBonus ? <Text style={styles.streakBonus}>3 maçlık seri bonusu: +{ownReward.streakBonus} altın</Text> : null}
             {result?.reason === 'forfeit' && didWin ? <Text style={styles.forfeit}>Rakip ayrıldığı için galibiyet senin.</Text> : null}
+            <OnlineButton label="Tekrar oyna" onPress={onPlayAgain} />
             <OnlineButton label="Ana sayfa" onPress={onBack} />
           </View>
         </View>

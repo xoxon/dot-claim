@@ -28,6 +28,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [gameConfig, setGameConfig] = useState<{ level: number; isDaily: boolean }>({ level: 1, isDaily: false });
+  const [onlineSession, setOnlineSession] = useState(0);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [account, setAccount] = useState<{ token: string; profile: PlayerProfile } | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -68,7 +69,10 @@ export default function App() {
     setScreen('game');
   }, []);
 
-  const startOnlineMatch = useCallback(() => setScreen('online'), []);
+  const startOnlineMatch = useCallback(() => {
+    setOnlineSession((current) => current + 1);
+    setScreen('online');
+  }, []);
 
   const onGameCompleted = useCallback((game: GameState) => {
     const won = game.playerScore > game.rivalScore;
@@ -130,17 +134,19 @@ export default function App() {
               onComplete={onGameCompleted}
               onPlayAgain={() => startGame(gameConfig.level, gameConfig.isDaily)}
             />
-        ) : screen === 'online' ? (
-          <OnlineMatchScreen
-            difficulty={difficulty}
-            profile={account?.profile ?? null}
-            token={account?.token ?? null}
-            hapticsEnabled={stats.hapticsEnabled}
-            soundEnabled={stats.soundEnabled}
-            onBack={() => setScreen('home')}
-            onProfileUpdated={onProfileUpdated}
-          />
-        ) : account ? (
+          ) : screen === 'online' ? (
+            <OnlineMatchScreen
+              key={onlineSession}
+              difficulty={difficulty}
+              profile={account?.profile ?? null}
+              token={account?.token ?? null}
+              hapticsEnabled={stats.hapticsEnabled}
+              soundEnabled={stats.soundEnabled}
+              onBack={() => setScreen('home')}
+              onPlayAgain={startOnlineMatch}
+              onProfileUpdated={onProfileUpdated}
+            />
+          ) : account ? (
           <ProfileScreen profile={account.profile} token={account.token} onBack={() => setScreen('home')} onProfileUpdated={onProfileUpdated} />
         ) : (
           <View style={styles.accountLoading}>
