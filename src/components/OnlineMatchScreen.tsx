@@ -37,6 +37,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
   const [pendingMove, setPendingMove] = useState(false);
   const [resultVisible, setResultVisible] = useState(false);
   const [result, setResult] = useState<OnlineMatchResult | null>(null);
+  const [inspectedProfile, setInspectedProfile] = useState<PlayerProfile | null>(null);
   const playSound = useGameSounds(soundEnabled);
   const boardSize = Math.min(Math.max(width - 32, 260), 500);
 
@@ -192,13 +193,13 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
       </View>
 
       {connection === 'matched' && color && match ? (
-        <MatchLobby match={match} color={color} onStart={startMatch} />
+        <MatchLobby match={match} color={color} onStart={startMatch} onInspectProfile={setInspectedProfile} />
       ) : localGame ? (
         <>
           <View style={styles.scoreCard}>
-            <OnlineScore label="SEN" name={player?.displayName ?? 'Sen'} profile={player} score={localGame.playerScore} color="#58C7FF" active={localGame.turn === 'player' && !localGame.isComplete} />
+            <OnlineScore label="SEN" name={player?.displayName ?? 'Sen'} profile={player} score={localGame.playerScore} color="#58C7FF" active={localGame.turn === 'player' && !localGame.isComplete} onInspectProfile={setInspectedProfile} />
             <View style={styles.moves}><Text style={styles.moveValue}>{localGame.moveNumber}/{localGame.maxMoves}</Text><Text style={styles.moveLabel}>HAMLE</Text></View>
-            <OnlineScore label="RAKİP" name={opponent?.displayName ?? 'Rakip'} profile={opponent} score={localGame.rivalScore} color="#FF6680" active={localGame.turn === 'rival' && !localGame.isComplete} />
+            <OnlineScore label="RAKİP" name={opponent?.displayName ?? 'Rakip'} profile={opponent} score={localGame.rivalScore} color="#FF6680" active={localGame.turn === 'rival' && !localGame.isComplete} onInspectProfile={setInspectedProfile} />
           </View>
           <View style={styles.status}><View style={[styles.statusLight, { backgroundColor: localGame.turn === 'player' ? '#58C7FF' : '#FF6680' }]} /><Text style={styles.statusText}>{title}</Text></View>
           <GameBoard dots={localGame.dots} edges={localGame.edges} triangles={localGame.triangles} selectedDotId={selectedDotId} disabled={localGame.turn !== 'player' || pendingMove || localGame.isComplete || connection !== 'playing'} size={boardSize} onDotPress={onDotPress} />
@@ -231,11 +232,13 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
           </View>
         </View>
       </Modal>
+
+      <PlayerProfileModal profile={inspectedProfile} onClose={() => setInspectedProfile(null)} />
     </View>
   );
 }
 
-function MatchLobby({ match, color, onStart }: { match: OnlineMatchState; color: MatchColor; onStart: () => void }) {
+function MatchLobby({ match, color, onStart, onInspectProfile }: { match: OnlineMatchState; color: MatchColor; onStart: () => void; onInspectProfile: (profile: PlayerProfile) => void }) {
   const opponentColor: MatchColor = color === 'blue' ? 'red' : 'blue';
   const youReady = match.ready[color];
   const opponentReady = match.ready[opponentColor];
@@ -244,9 +247,9 @@ function MatchLobby({ match, color, onStart }: { match: OnlineMatchState; color:
     <Text style={styles.lobbyTitle}>Hazır mısınız?</Text>
     <Text style={styles.lobbyText}>Tahta, iki oyuncu da oyuna hazır olduğunda açılır.</Text>
     <View style={styles.lobbyPlayers}>
-      <LobbyPlayer label="SEN" profile={match.players[color]} ready={youReady} color="#58C7FF" />
+      <LobbyPlayer label="SEN" profile={match.players[color]} ready={youReady} color="#58C7FF" onInspectProfile={onInspectProfile} />
       <Text style={styles.vs}>VS</Text>
-      <LobbyPlayer label="RAKİP" profile={match.players[opponentColor]} ready={opponentReady} color="#FF6680" />
+      <LobbyPlayer label="RAKİP" profile={match.players[opponentColor]} ready={opponentReady} color="#FF6680" onInspectProfile={onInspectProfile} />
     </View>
     <View style={[styles.readyHint, opponentReady && styles.readyHintActive]}>
       <View style={[styles.readyLight, { backgroundColor: opponentReady ? '#3DD6B8' : '#FFC857' }]} />
@@ -256,24 +259,62 @@ function MatchLobby({ match, color, onStart }: { match: OnlineMatchState; color:
   </View>;
 }
 
-function LobbyPlayer({ label, profile, ready, color }: { label: string; profile: PlayerProfile; ready: boolean; color: string }) {
-  return <View style={styles.lobbyPlayer}>
-    <View style={[styles.lobbyAvatarRing, { borderColor: color }]}><Avatar profile={profile} size={58} /></View>
+function LobbyPlayer({ label, profile, ready, color, onInspectProfile }: { label: string; profile: PlayerProfile; ready: boolean; color: string; onInspectProfile: (profile: PlayerProfile) => void }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${profile.displayName} profilini aç`} onPress={() => onInspectProfile(profile)} style={styles.lobbyPlayer}>
+    <View style={[styles.lobbyAvatarRing, { borderColor: color }]}><Avatar profile={profile} size={72} /></View>
     <Text style={styles.lobbyPlayerLabel}>{label}</Text>
     <Text numberOfLines={1} style={styles.lobbyPlayerName}>{profile.displayName}</Text>
     <View style={[styles.playerReady, ready && styles.playerReadyActive]}><Text style={[styles.playerReadyText, ready && styles.playerReadyTextActive]}>{ready ? 'Hazır' : 'Bekliyor'}</Text></View>
-  </View>;
+  </Pressable>;
 }
 
 function OnlineIconButton({ label, symbol, onPress }: { label: string; symbol: string; onPress: () => void }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.iconButton}><Text style={styles.iconText}>{symbol}</Text></Pressable>;
 }
 
-function OnlineScore({ label, name, profile, score, color, active }: { label: string; name: string; profile: PlayerProfile | null; score: number; color: string; active: boolean }) {
-  return <View style={styles.score}>
-    <View style={styles.scoreIdentity}>{profile ? <Avatar profile={profile} size={21} /> : <View style={[styles.scoreDot, { backgroundColor: color }]} />}<Text numberOfLines={1} style={styles.scoreName}>{name}</Text></View>
+function OnlineScore({ label, name, profile, score, color, active, onInspectProfile }: { label: string; name: string; profile: PlayerProfile | null; score: number; color: string; active: boolean; onInspectProfile: (profile: PlayerProfile) => void }) {
+  return <Pressable accessibilityRole={profile ? 'button' : undefined} accessibilityLabel={profile ? `${name} profilini aç` : undefined} disabled={!profile} onPress={() => profile && onInspectProfile(profile)} style={[styles.score, active && styles.scoreActive]}>
+    {profile ? <View style={[styles.scoreAvatarRing, { borderColor: color }]}><Avatar profile={profile} size={46} /></View> : <View style={[styles.scoreDot, { backgroundColor: color }]} />}
+    <Text numberOfLines={1} style={styles.scoreName}>{name}</Text>
     <Text style={styles.scoreLabel}>{label}</Text><Text style={styles.scoreValue}>{score}</Text>
-  </View>;
+  </Pressable>;
+}
+
+function PlayerProfileModal({ profile, onClose }: { profile: PlayerProfile | null; onClose: () => void }) {
+  if (!profile) return null;
+  const achievements = [
+    { icon: '✦', title: 'İlk adım', detail: 'İlk çevrimiçi maçı tamamla.', unlocked: profile.gamesPlayed >= 1 },
+    { icon: '⚡', title: 'Seri ustası', detail: '3 maçlık galibiyet serisine ulaş.', unlocked: profile.bestWinStreak >= 3 },
+    { icon: '♛', title: 'Yükselen yıldız', detail: 'Gümüş lige yüksel.', unlocked: profile.trophies >= 300 },
+  ];
+  return <Modal transparent animationType="fade" visible onRequestClose={onClose}>
+    <View style={styles.profileScrim}>
+      <View style={styles.profileModal}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Profili kapat" onPress={onClose} style={styles.profileClose}><Text style={styles.profileCloseText}>×</Text></Pressable>
+        <View style={[styles.modalAvatarRing, { borderColor: profile.league.color }]}><Avatar profile={profile} size={96} /></View>
+        <Text style={styles.modalName}>{profile.displayName}</Text>
+        <Text style={[styles.modalLeague, { color: profile.league.color }]}>{profile.league.name.toUpperCase()} LİGİ · SEVİYE {profile.level}</Text>
+        <View style={styles.modalTrophies}><Text style={styles.modalTrophyValue}>🏆 {profile.trophies}</Text><Text style={styles.modalTrophyLabel}>KUPA</Text></View>
+        <View style={styles.profileStats}>
+          <ProfileMetric value={profile.gamesPlayed} label="Maç" />
+          <ProfileMetric value={profile.wins} label="Galibiyet" color="#3DD6B8" />
+          <ProfileMetric value={profile.losses} label="Mağlubiyet" color="#FF6680" />
+          <ProfileMetric value={profile.bestWinStreak} label="En iyi seri" color="#B27BFF" />
+        </View>
+        <Text style={styles.achievementsTitle}>Başarılar</Text>
+        <View style={styles.achievementList}>{achievements.map((achievement) => <AchievementRow key={achievement.title} {...achievement} />)}</View>
+        <OnlineButton label="Maça dön" onPress={onClose} />
+      </View>
+    </View>
+  </Modal>;
+}
+
+function ProfileMetric({ value, label, color = '#F7FBFF' }: { value: number; label: string; color?: string }) {
+  return <View style={styles.profileMetric}><Text style={[styles.profileMetricValue, { color }]}>{value}</Text><Text style={styles.profileMetricLabel}>{label}</Text></View>;
+}
+
+function AchievementRow({ icon, title, detail, unlocked }: { icon: string; title: string; detail: string; unlocked: boolean }) {
+  return <View style={[styles.achievementRow, !unlocked && styles.achievementLocked]}><Text style={styles.achievementIcon}>{unlocked ? icon : '🔒'}</Text><View style={styles.achievementCopy}><Text style={styles.achievementName}>{title}</Text><Text style={styles.achievementDetail}>{detail}</Text></View><Text style={[styles.achievementState, unlocked && styles.achievementStateUnlocked]}>{unlocked ? 'Açık' : 'Kilitli'}</Text></View>;
 }
 
 function Reward({ label, value, symbol, color }: { label: string; value: number; symbol: string; color: string }) {
@@ -292,15 +333,15 @@ const styles = StyleSheet.create({
   kicker: { color: '#8FA8BD', fontSize: 10, fontWeight: '800', textAlign: 'center', letterSpacing: 1.2 },
   subtitle: { color: '#F7FBFF', fontSize: 16, fontWeight: '800', textAlign: 'center', marginTop: 2 },
   connection: { width: 12, height: 12, borderRadius: 6 },
-  scoreCard: { minHeight: 94, borderRadius: 20, paddingHorizontal: 18, backgroundColor: '#0E2035', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#1B354E' },
-  score: { minWidth: 60, alignItems: 'center' },
-  scoreIdentity: { maxWidth: 76, flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 3 },
-  scoreName: { color: '#C8D9E7', flexShrink: 1, fontSize: 10, fontWeight: '700' },
-  scoreDot: { width: 9, height: 9, borderRadius: 5, marginBottom: 5 },
-  scoreDotActive: { transform: [{ scale: 1.5 }] },
+  scoreCard: { minHeight: 130, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#0E2035', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#1B354E' },
+  score: { flex: 1, minWidth: 0, alignItems: 'center', borderRadius: 14, paddingVertical: 2 },
+  scoreActive: { backgroundColor: '#123047' },
+  scoreAvatarRing: { padding: 2, borderRadius: 27, borderWidth: 2 },
+  scoreName: { maxWidth: '100%', color: '#C8D9E7', fontSize: 10, fontWeight: '800', marginTop: 4 },
+  scoreDot: { width: 18, height: 18, borderRadius: 9, marginBottom: 4 },
   scoreLabel: { color: '#91A5B9', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   scoreValue: { color: '#F7FBFF', fontSize: 28, fontWeight: '800', marginTop: -1 },
-  moves: { alignItems: 'center', paddingHorizontal: 18, borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#294159' },
+  moves: { minWidth: 70, alignItems: 'center', paddingHorizontal: 11, borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#294159' },
   moveValue: { color: '#D5E1EB', fontSize: 16, fontWeight: '800' },
   moveLabel: { color: '#71879B', fontSize: 9, fontWeight: '800', letterSpacing: 0.9, marginTop: 2 },
   status: { minHeight: 44, paddingHorizontal: 15, borderRadius: 14, backgroundColor: '#0B1C2E', borderWidth: 1, borderColor: '#1B354E', flexDirection: 'row', alignItems: 'center', gap: 9 },
@@ -317,7 +358,7 @@ const styles = StyleSheet.create({
   lobbyText: { color: '#9AB0C2', fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 8 },
   lobbyPlayers: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 26 },
   lobbyPlayer: { width: '39%', alignItems: 'center' },
-  lobbyAvatarRing: { padding: 3, borderRadius: 35, borderWidth: 2 },
+  lobbyAvatarRing: { padding: 3, borderRadius: 42, borderWidth: 2 },
   lobbyPlayerLabel: { color: '#91A5B9', fontSize: 10, letterSpacing: 1, fontWeight: '900', marginTop: 8 },
   lobbyPlayerName: { color: '#F0F7FC', fontSize: 14, fontWeight: '800', marginTop: 3, maxWidth: '100%' },
   vs: { color: '#7591A6', fontSize: 16, fontWeight: '900' },
@@ -333,6 +374,30 @@ const styles = StyleSheet.create({
   buttonText: { color: '#0B253A', fontSize: 16, fontWeight: '800' },
   buttonDisabled: { backgroundColor: '#71879B' },
   scrim: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.76)', padding: 24, justifyContent: 'center' },
+  profileScrim: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.82)', padding: 20, justifyContent: 'center' },
+  profileModal: { maxWidth: 460, alignSelf: 'center', width: '100%', borderRadius: 28, padding: 22, backgroundColor: '#10263D', borderWidth: 1, borderColor: '#35607E', alignItems: 'center' },
+  profileClose: { position: 'absolute', top: 13, right: 13, zIndex: 1, width: 35, height: 35, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#18354D' },
+  profileCloseText: { color: '#EAF4FA', fontSize: 27, lineHeight: 29, fontWeight: '400', marginTop: -3 },
+  modalAvatarRing: { padding: 4, borderRadius: 54, borderWidth: 3 },
+  modalName: { color: '#F7FBFF', fontSize: 23, fontWeight: '900', marginTop: 10 },
+  modalLeague: { fontSize: 10, letterSpacing: 1.1, fontWeight: '900', marginTop: 4 },
+  modalTrophies: { flexDirection: 'row', alignItems: 'baseline', gap: 5, marginTop: 12 },
+  modalTrophyValue: { color: '#FFD36F', fontSize: 20, fontWeight: '900' },
+  modalTrophyLabel: { color: '#9CB5C9', fontSize: 10, letterSpacing: 0.8, fontWeight: '900' },
+  profileStats: { width: '100%', flexDirection: 'row', gap: 7, marginTop: 16 },
+  profileMetric: { flex: 1, minHeight: 54, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0B1C2E' },
+  profileMetricValue: { fontSize: 17, fontWeight: '900' },
+  profileMetricLabel: { color: '#8FA8BD', fontSize: 8, fontWeight: '800', marginTop: 2, textAlign: 'center' },
+  achievementsTitle: { width: '100%', color: '#F1F7FB', fontSize: 16, fontWeight: '900', marginTop: 19, marginBottom: 8 },
+  achievementList: { width: '100%', gap: 7 },
+  achievementRow: { minHeight: 51, paddingHorizontal: 10, borderRadius: 12, backgroundColor: '#12382F', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  achievementLocked: { backgroundColor: '#17293A', opacity: 0.72 },
+  achievementIcon: { width: 22, textAlign: 'center', fontSize: 16 },
+  achievementCopy: { flex: 1 },
+  achievementName: { color: '#EEF7FC', fontSize: 12, fontWeight: '900' },
+  achievementDetail: { color: '#A4BBCA', fontSize: 10, marginTop: 2 },
+  achievementState: { color: '#91A5B9', fontSize: 10, fontWeight: '900' },
+  achievementStateUnlocked: { color: '#58E0B8' },
   resultCard: { borderRadius: 28, padding: 27, backgroundColor: '#10263D', borderWidth: 1, borderColor: '#35607E', alignItems: 'center' },
   resultIcon: { color: '#FFC857', fontSize: 42 },
   resultTitle: { color: '#F7FBFF', fontSize: 24, fontWeight: '800', marginTop: 8 },
