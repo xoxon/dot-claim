@@ -18,6 +18,7 @@ export function ProfileScreen({ profile, token, onBack, onProfileUpdated }: {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [history, setHistory] = useState<MatchHistoryItem[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const canChangeDisplayName = profile.canChangeDisplayName !== false;
 
   const loadData = useCallback(async () => {
     setLoadingData(true);
@@ -41,7 +42,7 @@ export function ProfileScreen({ profile, token, onBack, onProfileUpdated }: {
   }, [loadData]);
 
   const saveName = async () => {
-    if (savingName || displayName.trim() === profile.displayName) return;
+    if (!canChangeDisplayName || savingName || displayName.trim() === profile.displayName) return;
     setSavingName(true);
     try {
       const updated = await updateDisplayName(token, displayName);
@@ -52,6 +53,18 @@ export function ProfileScreen({ profile, token, onBack, onProfileUpdated }: {
     } finally {
       setSavingName(false);
     }
+  };
+
+  const confirmSaveName = () => {
+    if (!canChangeDisplayName || savingName || displayName.trim() === profile.displayName) return;
+    Alert.alert(
+      'Kullanıcı adını sabitle',
+      `“${displayName.trim()}” kullanıcı adı yalnızca bir kez ayarlanabilir. Onayladıktan sonra değiştirilemez.`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        { text: 'Onayla ve sabitle', onPress: () => void saveName() },
+      ],
+    );
   };
 
   const pickAvatar = async () => {
@@ -109,13 +122,18 @@ export function ProfileScreen({ profile, token, onBack, onProfileUpdated }: {
           <Text style={styles.level}>Seviye {profile.level}</Text>
         </View>
         <Text style={styles.avatarHint}>Fotoğrafa dokunarak avatarını değiştir.</Text>
-        <View style={styles.nameRow}>
-          <TextInput accessibilityLabel="Kullanıcı adı" value={displayName} maxLength={18} onChangeText={setDisplayName} style={styles.nameInput} placeholderTextColor="#667F93" />
-          <Pressable accessibilityRole="button" accessibilityLabel="Kullanıcı adını kaydet" onPress={() => void saveName()} style={[styles.saveButton, (savingName || displayName.trim() === profile.displayName) && styles.buttonDisabled]}>
-            <Text style={styles.saveButtonText}>{savingName ? '…' : 'Kaydet'}</Text>
-          </Pressable>
-        </View>
-        <Text style={styles.nameHint}>3–18 karakter: harf, rakam, boşluk, nokta veya tire.</Text>
+        {canChangeDisplayName ? <>
+          <View style={styles.nameRow}>
+            <TextInput accessibilityLabel="Kullanıcı adı" value={displayName} maxLength={18} onChangeText={setDisplayName} style={styles.nameInput} placeholderTextColor="#667F93" />
+            <Pressable accessibilityRole="button" accessibilityLabel="Kullanıcı adını kaydet ve sabitle" onPress={confirmSaveName} style={[styles.saveButton, (savingName || displayName.trim() === profile.displayName) && styles.buttonDisabled]}>
+              <Text style={styles.saveButtonText}>{savingName ? '…' : 'Kaydet'}</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.nameHint}>3–18 karakter: harf, rakam, boşluk, nokta veya tire. Bir kez ayarlanır.</Text>
+        </> : <>
+          <View style={styles.lockedNameRow}><Text style={styles.lockedName}>{profile.displayName}</Text><View style={styles.lockedBadge}><Text style={styles.lockedBadgeText}>✓ SABİTLENDİ</Text></View></View>
+          <Text style={styles.nameHint}>Kullanıcı adı bir kez ayarlandı ve artık değiştirilemez.</Text>
+        </>}
       </View>
 
       <View style={styles.wallet}>
@@ -204,6 +222,10 @@ const styles = StyleSheet.create({
   saveButton: { minWidth: 78, minHeight: 46, borderRadius: 14, backgroundColor: '#F7FBFF', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12 },
   saveButtonText: { color: '#0A2439', fontSize: 13, fontWeight: '900' },
   buttonDisabled: { opacity: 0.45 },
+  lockedNameRow: { width: '100%', minHeight: 52, marginTop: 18, paddingHorizontal: 15, borderRadius: 14, backgroundColor: '#0B1D2E', borderWidth: 1, borderColor: '#315771', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  lockedName: { color: '#F7FBFF', fontSize: 16, fontWeight: '800', flex: 1 },
+  lockedBadge: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, backgroundColor: '#123D37' },
+  lockedBadgeText: { color: '#58E0B8', fontSize: 9, letterSpacing: 0.5, fontWeight: '900' },
   nameHint: { color: '#7F9CB3', fontSize: 11, alignSelf: 'flex-start', marginTop: 8 },
   wallet: { flexDirection: 'row', gap: 10 },
   metric: { flex: 1, minHeight: 76, borderRadius: 17, backgroundColor: '#0E2035', borderWidth: 1, borderColor: '#1B354E', alignItems: 'center', justifyContent: 'center' },

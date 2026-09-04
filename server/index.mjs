@@ -30,6 +30,7 @@ database.exec(`
     id TEXT PRIMARY KEY,
     device_id TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    display_name_locked INTEGER NOT NULL DEFAULT 0,
     avatar_path TEXT,
     avatar_version INTEGER NOT NULL DEFAULT 0,
     trophies INTEGER NOT NULL DEFAULT 0,
@@ -67,6 +68,12 @@ database.exec(`
   CREATE INDEX IF NOT EXISTS matches_red_user_idx ON matches(red_user_id, ended_at DESC);
   CREATE INDEX IF NOT EXISTS users_leaderboard_idx ON users(trophies DESC, xp DESC, wins DESC);
 `);
+
+const userColumns = database.prepare('PRAGMA table_info(users)').all();
+if (!userColumns.some((column) => column.name === 'display_name_locked')) {
+  database.exec('ALTER TABLE users ADD COLUMN display_name_locked INTEGER NOT NULL DEFAULT 0');
+  database.prepare("UPDATE users SET display_name_locked = 1 WHERE display_name NOT GLOB 'Oyuncu [0-9][0-9][0-9][0-9]'").run();
+}
 
 const waiting = new Map();
 const rooms = new Map();
@@ -110,6 +117,7 @@ function publicUser(user) {
   return {
     id: user.id,
     displayName: user.display_name,
+    canChangeDisplayName: !Boolean(user.display_name_locked),
     avatarUrl: avatarUrl(user),
     trophies: user.trophies,
     coins: user.coins,
@@ -523,11 +531,12 @@ async function handleHttp(request, response) {
     if (!rateLimit(request, response, 'profile', 20)) return;
     const user = requireAuthenticatedUser(request, response);
     if (!user) return;
+    if (user.display_name_locked) return sendError(request, response, 403, 'Kullanıcı adı bir kez ayarlanabilir ve artık sabitlenmiş.');
     const body = await readJson(request, 8_000);
     const displayName = normalizeDisplayName(body.displayName);
     if (!displayName) return sendError(request, response, 400, 'Kullanıcı adı 3-18 karakter olmalı; sadece harf, rakam, boşluk, nokta ve tire kullanın.');
     if (database.prepare('SELECT id FROM users WHERE display_name = ? AND id != ?').get(displayName, user.id)) return sendError(request, response, 409, 'Bu kullanıcı adı alınmış.');
-    database.prepare('UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?').run(displayName, now(), user.id);
+    database.prepare('UPDATE users SET display_name = ?, display_name_locked = 1, updated_at = ? WHERE id = ?').run(displayName, now(), user.id);
     return sendJson(request, response, 200, { profile: publicUser(getUserById(user.id)) });
   }
 

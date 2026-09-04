@@ -7,6 +7,7 @@ export type League = {
 export type PlayerProfile = {
   id: string;
   displayName: string;
+  canChangeDisplayName: boolean;
   avatarUrl: string | null;
   trophies: number;
   coins: number;
