@@ -6,23 +6,29 @@ import { io, type Socket } from 'socket.io-client';
 import { useGameSounds } from '../audio';
 import { canConnect } from '../game/engine';
 import type { Difficulty, GameState } from '../game/types';
-import type { MatchColor, OnlineMatchState } from '../online/types';
+import { MATCH_SERVER_URL } from '../profile/api';
+import type { PlayerProfile } from '../profile/types';
+import type { MatchColor, OnlineMatchResult, OnlineMatchState } from '../online/types';
 import { GameBoard } from './GameBoard';
+import { Avatar } from './ProfileScreen';
 
-const SERVER_URL = process.env.EXPO_PUBLIC_MATCH_SERVER_URL ?? (__DEV__ ? 'http://127.0.0.1:3001' : '');
+const SERVER_URL = MATCH_SERVER_URL;
 
 type ConnectionState = 'connecting' | 'waiting' | 'playing' | 'opponent_left' | 'error';
 
-export function OnlineMatchScreen({ difficulty, soundEnabled, hapticsEnabled, onBack, onComplete }: {
+export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onProfileUpdated }: {
   difficulty: Difficulty;
+  profile: PlayerProfile | null;
+  token: string | null;
   soundEnabled: boolean;
   hapticsEnabled: boolean;
   onBack: () => void;
-  onComplete: (result: 'win' | 'loss' | 'draw') => void;
+  onProfileUpdated: (profile: PlayerProfile) => void;
 }) {
   const { width } = useWindowDimensions();
   const socketRef = useRef<Socket | null>(null);
   const completeRef = useRef(false);
+  const colorRef = useRef<MatchColor | null>(null);
   const lastMoveRef = useRef(0);
   const [connection, setConnection] = useState<ConnectionState>('connecting');
   const [match, setMatch] = useState<OnlineMatchState | null>(null);
@@ -30,6 +36,7 @@ export function OnlineMatchScreen({ difficulty, soundEnabled, hapticsEnabled, on
   const [selectedDotId, setSelectedDotId] = useState<string | null>(null);
   const [pendingMove, setPendingMove] = useState(false);
   const [resultVisible, setResultVisible] = useState(false);
+  const [result, setResult] = useState<OnlineMatchResult | null>(null);
   const playSound = useGameSounds(soundEnabled);
   const boardSize = Math.min(Math.max(width - 32, 260), 500);
 
@@ -38,11 +45,11 @@ export function OnlineMatchScreen({ difficulty, soundEnabled, hapticsEnabled, on
   }, [hapticsEnabled]);
 
   useEffect(() => {
-    if (!SERVER_URL) {
+    if (!SERVER_URL || !token || !profile) {
       setConnection('error');
       return undefined;
     }
-    const socket = io(SERVER_URL, { transports: ['websocket'], timeout: 9000, reconnection: true, reconnectionAttempts: 3 });
+    const socket = io(SERVER_URL, { auth: { token }, transports: ['websocket'], timeout: 9000, reconnection: true, reconnectionAttempts: 3 });
     socketRef.current = socket;
     socket.on('connect', () => {
       setConnection('waiting');
@@ -51,6 +58,7 @@ export function OnlineMatchScreen({ difficulty, soundEnabled, hapticsEnabled, on
     socket.on('queue_status', () => setConnection('waiting'));
     socket.on('match_found', ({ color: assignedColor, state }: { color: MatchColor; state: OnlineMatchState }) => {
       setColor(assignedColor);
+      colorRef.current = assignedColor;
       setMatch(state);
       setConnection('playing');
       lastMoveRef.current = 0;
@@ -59,6 +67,20 @@ export function OnlineMatchScreen({ difficulty, soundEnabled, hapticsEnabled, on
       setPendingMove(false);
       setSelectedDotId(null);
       setMatch(state);
+    });
+    socket.on('match_complete', (nextResult: OnlineMatchResult) => {
+      if (completeRef.current) return;
+      completeRef.current = true;
+      setPendingMove(false);
+      setSelectedDotId(null);
+      const assignedColor = colorRef.current;
+      const outcome = !assignedColor || nextResult.winner === 'draw' ? 'draw' : nextResult.winner === assignedColor ? 'win' : 'loss';
+      const nextProfile = assignedColor ? nextResult.players[assignedColor] : null;
+      if (nextProfile) onProfileUpdated(nextProfile);
+      setResult(nextResult);
+      playSound(outcome === 'win' ? 'victory' : 'defeat');
+      haptic(outcome === 'win' ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light);
+      setResultVisible(true);
     });
     socket.on('move_rejected', ({ message }: { message: string }) => {
       setPendingMove(false);
@@ -79,7 +101,7 @@ export function OnlineMatchScreen({ difficulty, soundEnabled, hapticsEnabled, on
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [difficulty, haptic, playSound]);
+  }, [difficulty, haptic, onProfileUpdated, playSound, profile, token]);
 
   const localGame = useMemo<GameState | null>(() => {
     if (!match || !color) return null;
@@ -108,15 +130,7 @@ export function OnlineMatchScreen({ difficulty, soundEnabled, hapticsEnabled, on
       if (!localGame.isComplete) playSound(claimed ? 'claim' : localGame.turn === 'player' ? 'rival' : 'connect');
       lastMoveRef.current = localGame.moveNumber;
     }
-    if (localGame.isComplete && !completeRef.current) {
-      completeRef.current = true;
-      const result = localGame.playerScore === localGame.rivalScore ? 'draw' : localGame.playerScore > localGame.rivalScore ? 'win' : 'loss';
-      playSound(result === 'win' ? 'victory' : 'defeat');
-      haptic(result === 'win' ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light);
-      onComplete(result);
-      setResultVisible(true);
-    }
-  }, [color, haptic, localGame, onComplete, playSound]);
+  }, [color, localGame, playSound]);
 
   const onDotPress = (id: string) => {
     if (!localGame || !match || !color || connection !== 'playing' || localGame.turn !== 'player' || pendingMove || localGame.isComplete) return;
@@ -148,7 +162,12 @@ export function OnlineMatchScreen({ difficulty, soundEnabled, hapticsEnabled, on
           : localGame?.isComplete ? 'Eşleşme tamamlandı.'
             : localGame?.turn === 'player' ? (selectedDotId ? 'İkinci noktayı seç.' : 'Senin sıran.') : 'Rakibin hamlesi bekleniyor…';
 
-  const resultTitle = localGame && localGame.playerScore > localGame.rivalScore ? 'Eşleşmeyi kazandın!' : localGame?.playerScore === localGame?.rivalScore ? 'Eşleşme berabere.' : 'Bu tur rakibin.';
+  const player = color && match ? match.players[color] : profile;
+  const opponent = color && match ? match.players[color === 'blue' ? 'red' : 'blue'] : null;
+  const didWin = color && result ? result.winner === color : false;
+  const didDraw = result?.winner === 'draw';
+  const ownReward = color && result ? result.rewards[color] : null;
+  const resultTitle = didWin ? 'Eşleşmeyi kazandın!' : didDraw ? 'Eşleşme berabere.' : 'Rövanş vakti.';
   return (
     <View style={styles.screen}>
       <View style={styles.topRow}>
@@ -160,9 +179,9 @@ export function OnlineMatchScreen({ difficulty, soundEnabled, hapticsEnabled, on
       {localGame ? (
         <>
           <View style={styles.scoreCard}>
-            <OnlineScore label="SEN" score={localGame.playerScore} color="#58C7FF" active={localGame.turn === 'player' && !localGame.isComplete} />
+            <OnlineScore label="SEN" name={player?.displayName ?? 'Sen'} profile={player} score={localGame.playerScore} color="#58C7FF" active={localGame.turn === 'player' && !localGame.isComplete} />
             <View style={styles.moves}><Text style={styles.moveValue}>{localGame.moveNumber}/{localGame.maxMoves}</Text><Text style={styles.moveLabel}>HAMLE</Text></View>
-            <OnlineScore label="RAKİP" score={localGame.rivalScore} color="#FF6680" active={localGame.turn === 'rival' && !localGame.isComplete} />
+            <OnlineScore label="RAKİP" name={opponent?.displayName ?? 'Rakip'} profile={opponent} score={localGame.rivalScore} color="#FF6680" active={localGame.turn === 'rival' && !localGame.isComplete} />
           </View>
           <View style={styles.status}><View style={[styles.statusLight, { backgroundColor: localGame.turn === 'player' ? '#58C7FF' : '#FF6680' }]} /><Text style={styles.statusText}>{title}</Text></View>
           <GameBoard dots={localGame.dots} edges={localGame.edges} triangles={localGame.triangles} selectedDotId={selectedDotId} disabled={localGame.turn !== 'player' || pendingMove || localGame.isComplete || connection !== 'playing'} size={boardSize} onDotPress={onDotPress} />
@@ -178,7 +197,22 @@ export function OnlineMatchScreen({ difficulty, soundEnabled, hapticsEnabled, on
       )}
 
       <Modal transparent animationType="fade" visible={resultVisible} onRequestClose={() => setResultVisible(false)}>
-        <View style={styles.scrim}><View style={styles.resultCard}><Text style={styles.resultIcon}>{localGame && localGame.playerScore > localGame.rivalScore ? '✦' : '≈'}</Text><Text style={styles.resultTitle}>{resultTitle}</Text><Text style={styles.resultScore}>{localGame?.playerScore} : {localGame?.rivalScore}</Text><OnlineButton label="Ana sayfa" onPress={onBack} /></View></View>
+        <View style={styles.scrim}>
+          <View style={styles.resultCard}>
+            <Text style={styles.resultIcon}>{didWin ? '✦' : didDraw ? '≈' : '◌'}</Text>
+            <Text style={styles.resultTitle}>{resultTitle}</Text>
+            <Text style={styles.resultOpponent}>{opponent ? `${opponent.displayName} ile oynadın` : 'Maç sonucu sunucuda kaydedildi'}</Text>
+            <Text style={styles.resultScore}>{localGame?.playerScore} : {localGame?.rivalScore}</Text>
+            {ownReward && <View style={styles.rewards}>
+              <Reward label="KUPA" value={ownReward.trophyDelta} symbol="🏆" color="#FFC857" />
+              <Reward label="ALTIN" value={ownReward.coinDelta} symbol="✦" color="#F6C84E" />
+              <Reward label="XP" value={ownReward.xpDelta} symbol="+" color="#58C7FF" />
+            </View>}
+            {ownReward?.streakBonus ? <Text style={styles.streakBonus}>3 maçlık seri bonusu: +{ownReward.streakBonus} altın</Text> : null}
+            {result?.reason === 'forfeit' && didWin ? <Text style={styles.forfeit}>Rakip ayrıldığı için galibiyet senin.</Text> : null}
+            <OnlineButton label="Ana sayfa" onPress={onBack} />
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -188,8 +222,15 @@ function OnlineIconButton({ label, symbol, onPress }: { label: string; symbol: s
   return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.iconButton}><Text style={styles.iconText}>{symbol}</Text></Pressable>;
 }
 
-function OnlineScore({ label, score, color, active }: { label: string; score: number; color: string; active: boolean }) {
-  return <View style={styles.score}><View style={[styles.scoreDot, { backgroundColor: color }, active && styles.scoreDotActive]} /><Text style={styles.scoreLabel}>{label}</Text><Text style={styles.scoreValue}>{score}</Text></View>;
+function OnlineScore({ label, name, profile, score, color, active }: { label: string; name: string; profile: PlayerProfile | null; score: number; color: string; active: boolean }) {
+  return <View style={styles.score}>
+    <View style={styles.scoreIdentity}>{profile ? <Avatar profile={profile} size={21} /> : <View style={[styles.scoreDot, { backgroundColor: color }]} />}<Text numberOfLines={1} style={styles.scoreName}>{name}</Text></View>
+    <Text style={styles.scoreLabel}>{label}</Text><Text style={styles.scoreValue}>{score}</Text>
+  </View>;
+}
+
+function Reward({ label, value, symbol, color }: { label: string; value: number; symbol: string; color: string }) {
+  return <View style={styles.reward}><Text style={[styles.rewardValue, { color }]}>{symbol} {value > 0 ? '+' : ''}{value}</Text><Text style={styles.rewardLabel}>{label}</Text></View>;
 }
 
 function OnlineButton({ label, onPress }: { label: string; onPress: () => void }) {
@@ -204,8 +245,10 @@ const styles = StyleSheet.create({
   kicker: { color: '#8FA8BD', fontSize: 10, fontWeight: '800', textAlign: 'center', letterSpacing: 1.2 },
   subtitle: { color: '#F7FBFF', fontSize: 16, fontWeight: '800', textAlign: 'center', marginTop: 2 },
   connection: { width: 12, height: 12, borderRadius: 6 },
-  scoreCard: { minHeight: 84, borderRadius: 20, paddingHorizontal: 24, backgroundColor: '#0E2035', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#1B354E' },
+  scoreCard: { minHeight: 94, borderRadius: 20, paddingHorizontal: 18, backgroundColor: '#0E2035', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#1B354E' },
   score: { minWidth: 60, alignItems: 'center' },
+  scoreIdentity: { maxWidth: 76, flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 3 },
+  scoreName: { color: '#C8D9E7', flexShrink: 1, fontSize: 10, fontWeight: '700' },
   scoreDot: { width: 9, height: 9, borderRadius: 5, marginBottom: 5 },
   scoreDotActive: { transform: [{ scale: 1.5 }] },
   scoreLabel: { color: '#91A5B9', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
@@ -227,5 +270,12 @@ const styles = StyleSheet.create({
   resultCard: { borderRadius: 28, padding: 27, backgroundColor: '#10263D', borderWidth: 1, borderColor: '#35607E', alignItems: 'center' },
   resultIcon: { color: '#FFC857', fontSize: 42 },
   resultTitle: { color: '#F7FBFF', fontSize: 24, fontWeight: '800', marginTop: 8 },
+  resultOpponent: { color: '#ACC1D1', fontSize: 14, marginTop: 6, textAlign: 'center' },
   resultScore: { color: '#F7FBFF', fontSize: 42, fontWeight: '800', marginTop: 16 },
+  rewards: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginTop: 18 },
+  reward: { flex: 1, minHeight: 58, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0B1C2E', borderWidth: 1, borderColor: '#24435C' },
+  rewardValue: { fontSize: 15, fontWeight: '900' },
+  rewardLabel: { color: '#8FA8BD', fontSize: 9, letterSpacing: 0.8, fontWeight: '800', marginTop: 3 },
+  streakBonus: { color: '#F6CF68', fontSize: 12, fontWeight: '700', textAlign: 'center', marginTop: 12 },
+  forfeit: { color: '#B8CCDA', fontSize: 12, textAlign: 'center', marginTop: 12 },
 });

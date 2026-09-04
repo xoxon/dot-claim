@@ -1,4 +1,5 @@
 import type { Difficulty, Dot } from '../game/types';
+import type { MatchReward, PlayerProfile } from '../profile/types';
 
 export type MatchColor = 'blue' | 'red';
 
@@ -26,4 +27,14 @@ export type OnlineMatchState = {
   moveNumber: number;
   maxMoves: number;
   isComplete: boolean;
+  players: Record<MatchColor, PlayerProfile>;
+};
+
+export type OnlineMatchResult = {
+  roomId: string;
+  scores: Record<MatchColor, number>;
+  winner: MatchColor | 'draw';
+  reason: 'completed' | 'forfeit';
+  rewards: Record<MatchColor, MatchReward | null>;
+  players: Record<MatchColor, PlayerProfile>;
 };

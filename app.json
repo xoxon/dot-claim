@@ -8,12 +8,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#07111F"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.example.dotclaim",
@@ -29,14 +23,30 @@
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#07111F"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/icon.png"
     },
     "plugins": [
-      "expo-audio"
+      "expo-audio",
+      "expo-status-bar",
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#07111F",
+          "image": "./assets/icon.png",
+          "imageWidth": 200
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Profil avatarını seçebilmek için fotoğraf arşivine erişim gerekir."
+        }
+      ],
+      "expo-secure-store"
     ]
   }
 }

@@ -1,5 +1,6 @@
 node_modules/
 .expo/
+.env
 dist/
 web-build/
 *.jks
@@ -7,3 +8,5 @@ web-build/
 *.p8
 *.mobileprovision
 *.orig.*
+server/data/
+server/uploads/

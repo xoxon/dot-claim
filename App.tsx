@@ -1,16 +1,20 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, Modal, Platform, Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { useGameSounds } from './src/audio';
 import { GameBoard } from './src/components/GameBoard';
 import { OnlineMatchScreen } from './src/components/OnlineMatchScreen';
+import { ProfileScreen } from './src/components/ProfileScreen';
 import { PLAYER_COLOR, RIVAL_COLOR, canConnect, createGame, pickRivalMove, playMove } from './src/game/engine';
 import { getLevelLabel } from './src/game/levels';
 import { loadStats, saveStats } from './src/storage';
 import { DEFAULT_STATS, type Difficulty, type GameState, type PlayerStats } from './src/game/types';
+import { loadAuthenticatedProfile } from './src/profile/api';
+import type { PlayerProfile } from './src/profile/types';
 
-type Screen = 'home' | 'game' | 'online';
+type Screen = 'home' | 'game' | 'online' | 'profile';
 
 const DIFFICULTY_COPY: Record<Difficulty, { title: string; subtitle: string }> = {
   easy: { title: 'Rahat', subtitle: 'Daha geniş hamle hakkı' },
@@ -25,12 +29,23 @@ export default function App() {
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [gameConfig, setGameConfig] = useState<{ level: number; isDaily: boolean }>({ level: 1, isDaily: false });
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [account, setAccount] = useState<{ token: string; profile: PlayerProfile } | null>(null);
 
   useEffect(() => {
     loadStats().then((stored) => {
       setStats(stored);
       setReady(true);
     });
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    loadAuthenticatedProfile()
+      .then((nextAccount) => {
+        if (active) setAccount(nextAccount);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
   }, []);
 
   const updateStats = useCallback((updater: (current: PlayerStats) => PlayerStats) => {
@@ -73,69 +88,77 @@ export default function App() {
     });
   }, [updateStats]);
 
-  const onOnlineCompleted = useCallback((result: 'win' | 'loss' | 'draw') => {
-    updateStats((current) => ({
-      ...current,
-      wins: current.wins + (result === 'win' ? 1 : 0),
-      losses: current.losses + (result === 'loss' ? 1 : 0),
-    }));
-  }, [updateStats]);
+  const onProfileUpdated = useCallback((profile: PlayerProfile) => {
+    setAccount((current) => current ? { ...current, profile } : current);
+  }, []);
 
   if (!ready) {
-    return <LoadingScreen />;
+    return <SafeAreaProvider><LoadingScreen /></SafeAreaProvider>;
   }
 
   return (
-    <AppErrorBoundary>
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="light-content" />
-        {screen === 'home' ? (
+    <SafeAreaProvider>
+      <AppErrorBoundary>
+        <SafeAreaView style={styles.safeArea}>
+          <StatusBar barStyle="light-content" />
+          {screen === 'home' ? (
           <HomeScreen
             stats={stats}
+            profile={account?.profile ?? null}
             difficulty={difficulty}
-            onDifficultyChange={setDifficulty}
-            onStart={startGame}
+              onDifficultyChange={setDifficulty}
+              onStart={startGame}
             onStartOnline={startOnlineMatch}
-            onOpenSettings={() => setSettingsVisible(true)}
-          />
-        ) : screen === 'game' ? (
-          <GameScreen
-            key={`${gameConfig.level}-${gameConfig.isDaily}-${difficulty}`}
-            config={gameConfig}
-            difficulty={difficulty}
-            hapticsEnabled={stats.hapticsEnabled}
-            soundEnabled={stats.soundEnabled}
-            onBack={() => setScreen('home')}
-            onComplete={onGameCompleted}
-            onPlayAgain={() => startGame(gameConfig.level, gameConfig.isDaily)}
-          />
-        ) : (
+            onOpenProfile={() => setScreen('profile')}
+              onOpenSettings={() => setSettingsVisible(true)}
+            />
+          ) : screen === 'game' ? (
+            <GameScreen
+              key={`${gameConfig.level}-${gameConfig.isDaily}-${difficulty}`}
+              config={gameConfig}
+              difficulty={difficulty}
+              hapticsEnabled={stats.hapticsEnabled}
+              soundEnabled={stats.soundEnabled}
+              onBack={() => setScreen('home')}
+              onComplete={onGameCompleted}
+              onPlayAgain={() => startGame(gameConfig.level, gameConfig.isDaily)}
+            />
+        ) : screen === 'online' ? (
           <OnlineMatchScreen
             difficulty={difficulty}
+            profile={account?.profile ?? null}
+            token={account?.token ?? null}
             hapticsEnabled={stats.hapticsEnabled}
             soundEnabled={stats.soundEnabled}
             onBack={() => setScreen('home')}
-            onComplete={onOnlineCompleted}
+            onProfileUpdated={onProfileUpdated}
           />
+        ) : account ? (
+          <ProfileScreen profile={account.profile} token={account.token} onBack={() => setScreen('home')} onProfileUpdated={onProfileUpdated} />
+        ) : (
+          <View style={styles.accountLoading}><Text style={styles.loadingText}>Profil sunucuya bağlanıyor…</Text><SecondaryButton label="Ana sayfa" onPress={() => setScreen('home')} /></View>
         )}
-        <SettingsModal
-          visible={settingsVisible}
-          stats={stats}
-          onClose={() => setSettingsVisible(false)}
-          onToggleHaptics={() => updateStats((current) => ({ ...current, hapticsEnabled: !current.hapticsEnabled }))}
-          onToggleSound={() => updateStats((current) => ({ ...current, soundEnabled: !current.soundEnabled }))}
-        />
-      </SafeAreaView>
-    </AppErrorBoundary>
+          <SettingsModal
+            visible={settingsVisible}
+            stats={stats}
+            onClose={() => setSettingsVisible(false)}
+            onToggleHaptics={() => updateStats((current) => ({ ...current, hapticsEnabled: !current.hapticsEnabled }))}
+            onToggleSound={() => updateStats((current) => ({ ...current, soundEnabled: !current.soundEnabled }))}
+          />
+        </SafeAreaView>
+      </AppErrorBoundary>
+    </SafeAreaProvider>
   );
 }
 
-function HomeScreen({ stats, difficulty, onDifficultyChange, onStart, onStartOnline, onOpenSettings }: {
+function HomeScreen({ stats, profile, difficulty, onDifficultyChange, onStart, onStartOnline, onOpenProfile, onOpenSettings }: {
   stats: PlayerStats;
+  profile: PlayerProfile | null;
   difficulty: Difficulty;
   onDifficultyChange: (difficulty: Difficulty) => void;
   onStart: (level: number, isDaily?: boolean) => void;
   onStartOnline: () => void;
+  onOpenProfile: () => void;
   onOpenSettings: () => void;
 }) {
   const nextLevel = Math.max(1, ...(stats.completedLevels.length ? stats.completedLevels.map((level) => level + 1) : [1]));
@@ -147,7 +170,10 @@ function HomeScreen({ stats, difficulty, onDifficultyChange, onStart, onStartOnl
           <Text style={styles.eyebrow}>DOT CLAIM</Text>
           <Text style={styles.homeTitle}>Noktaları bağla.{`\n`}Alanı sahiplen.</Text>
         </View>
-        <IconButton label="Ayarlar" symbol="⚙" onPress={onOpenSettings} />
+        <View style={styles.homeActions}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Profilini aç" onPress={onOpenProfile} style={styles.profileButton}><Text style={styles.profileButtonText}>{profile ? profile.displayName.slice(0, 1).toLocaleUpperCase('tr-TR') : '●'}</Text></Pressable>
+          <IconButton label="Ayarlar" symbol="⚙" onPress={onOpenSettings} />
+        </View>
       </View>
 
       <View style={styles.heroCard}>
@@ -356,7 +382,7 @@ function SettingsModal({ visible, stats, onClose, onToggleHaptics, onToggleSound
           <View style={styles.settingsHeader}><Text style={styles.settingsTitle}>Ayarlar</Text><IconButton label="Ayarları kapat" symbol="×" onPress={onClose} /></View>
           <SettingRow title="Dokunsal geri bildirim" subtitle="Hamlelerde titreşim" value={stats.hapticsEnabled} onChange={onToggleHaptics} />
           <SettingRow title="Ses efektleri" subtitle="Oyun hamleleri ve sonuçları" value={stats.soundEnabled} onChange={onToggleSound} />
-          <Text style={styles.settingsFootnote}>Dot Claim çevrimdışı oynanır; hesap, reklam ya da kişisel veri toplamaz.</Text>
+          <Text style={styles.settingsFootnote}>Çevrimiçi profilin, avatarın ve maç ilerlemen eşleşme sunucusunda saklanır. Avatarını istediğin zaman değiştirebilirsin.</Text>
         </View>
       </View>
     </Modal>
@@ -425,6 +451,9 @@ const styles = StyleSheet.create({
   loadingText: { color: '#B5C5D5', fontSize: 15, fontWeight: '600' },
   homeScroll: { padding: 20, paddingBottom: 42, gap: 20 },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  homeActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  profileButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: '#123A55', borderWidth: 1, borderColor: '#285E7E' },
+  profileButtonText: { color: '#C9EBFA', fontSize: 16, fontWeight: '900' },
   eyebrow: { color: '#58C7FF', fontSize: 12, fontWeight: '800', letterSpacing: 2 },
   homeTitle: { color: '#F7FBFF', fontSize: 31, lineHeight: 37, fontWeight: '800', marginTop: 6, letterSpacing: -0.8 },
   iconButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: '#13263B', borderWidth: 1, borderColor: '#25425C' },
@@ -515,4 +544,5 @@ const styles = StyleSheet.create({
   fatalScreen: { flex: 1, backgroundColor: '#07111F', alignItems: 'center', justifyContent: 'center', padding: 28 },
   fatalTitle: { color: '#F7FBFF', fontSize: 23, fontWeight: '800' },
   fatalText: { color: '#AABCCB', fontSize: 15, marginTop: 8 },
+  accountLoading: { flex: 1, backgroundColor: '#07111F', alignItems: 'center', justifyContent: 'center', padding: 28, gap: 16 },
 });

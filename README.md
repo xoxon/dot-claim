@@ -13,7 +13,7 @@ Expo açıldıktan sonra iOS Simulator, Android emulator veya Expo Go ile açabi
 
 ## Çevrimiçi iki kişilik oyun
 
-Oyuncular `Çevrimiçi rakip ara` düğmesinden aynı zorlukta eşleşir. Sunucu, her hamleyi doğrular; bu nedenle istemciler skor, sıra veya tahta durumunu değiştiremez.
+Oyuncular `Çevrimiçi rakip ara` düğmesinden aynı zorlukta eşleşir. Sunucu, her hamleyi doğrular; bu nedenle istemciler skor, sıra veya tahta durumunu değiştiremez. Eşleşme kartında iki oyuncunun avatarı ve kullanıcı adı görünür.
 
 Yerel iOS Simulator denemesi için iki terminal kullanın:
 
@@ -30,13 +30,54 @@ EXPO_PUBLIC_MATCH_SERVER_URL=https://match.sizin-alanadiniz.com npx expo start
 
 EAS üretim derlemesinde aynı değişkeni EAS Environment Variables üzerinden tanımlayın. `PORT` sunucu portunu, `ALLOWED_ORIGINS` ise virgülle ayrılmış izinli web istemci adreslerini ayarlar. Mobil uygulamalar için üretimde HTTPS/WSS kullanın; örnek `http://127.0.0.1:3001` yalnızca Simulator geliştirme ortamı içindir.
 
+## Kalıcı profil, avatar ve ödüller
+
+Evet, bu verileri kalıcı bir veritabanında tutmak gerekir. Sunucu, ek servis kurdurmadan kendi dizininde SQLite kullanır:
+
+- `server/data/dot-claim.sqlite`: kullanıcı adı, kupa, altın, XP, lig, galibiyet/mağlubiyet ve maç geçmişi.
+- `server/uploads/avatars/`: kullanıcıların yüklediği avatar görselleri.
+- Uygulama ilk açılışta güvenli cihaz anahtarlığında saklanan anonim bir hesap oluşturur. Kullanıcı adı ve avatar daha sonra değiştirilebilir.
+- Avatarlar telefon üzerinde 512×512 JPEG'e küçültülür; sunucu JPG/PNG/WebP doğrulaması yapar, 900 KB sınırı uygular ve yalnızca kendi avatar klasörüne yazar.
+- Maç bittiğinde sonuç sunucuda bir kez kayda alınır. Galibiyet: **+25 kupa, +50 altın, +100 XP**; beraberlik: **+8 kupa, +20 altın, +50 XP**; mağlubiyet: **-12 kupa, +20 XP**. Her üçüncü ardışık galibiyet ek **+30 altın** verir.
+- Ligler kupa puanından hesaplanır: Bronz, Gümüş (300), Altın (650), Elmas (1000).
+
+Bu anonim hesap tek cihaz içindir. Oyuncunun hesabını başka bir cihaza taşımasını istiyorsanız sonraki aşamada Sign in with Apple eklenmelidir.
+
+### CloudPanel sunucusuna güncelleme
+
+Mevcut `match.barkodgenerator.com` sunucusunda, proje dizininde sırayla çalıştırın:
+
+```bash
+cd ~/apps/dot-claim
+git pull
+npm ci
+cp server/.env.example server/.env
+nano server/.env
+```
+
+`server/.env` içindeki `PUBLIC_BASE_URL` değerini tam olarak aşağıdaki gibi bırakın:
+
+```text
+PUBLIC_BASE_URL=https://match.barkodgenerator.com
+```
+
+Sonra çalışan servisi yeniden başlatın:
+
+```bash
+pm2 restart dot-claim-match --update-env
+pm2 save
+curl -i https://match.barkodgenerator.com/health
+```
+
+Son komutun `200` ve `database: ready` dönmesi gerekir. CloudPanel tarafında mevcut ters vekil kuralı `127.0.0.1:3001` adresine yönlendirmeye devam etmelidir. `server/data/` ve `server/uploads/` klasörlerini Git'e eklemeyin; bunlar canlı oyuncu verileridir. Düzenli yedeklemede ikisini birlikte saklayın.
+
 ## Yayına hazırlık
 
 Bu kaynak kod üretime hazır bir Expo uygulamasıdır; mağazaya gönderim, uygulama sahibinin Apple/Google geliştirici hesapları ve imzalama yetkileriyle yapılır.
 
 1. `app.json` içindeki `ios.bundleIdentifier` ve `android.package` değerlerini size ait, benzersiz kimliklerle değiştirin. Örn. `com.studyo.dotclaim`.
 2. App Store için 1024×1024 mağaza görseli, ekran görüntüleri, gizlilik politikası URL'si ve App Store Connect kaydı oluşturun.
-3. Google Play için mağaza kaydı, içerik derecelendirmesi ve gizlilik formunu tamamlayın.
+3. Google Play için mağaza kaydı, içerik derecelendirmesi ve gizlilik formunu tamamlayın. Gizlilik politikanızda kullanıcı adı, seçilen avatar, maç sonuçları ve oyun içi ilerlemenin eşleşme sunucusunda saklandığını belirtin.
 4. Expo hesabınızla giriş yapıp üretim derlemelerini alın:
 
 ```bash
@@ -53,11 +94,12 @@ npx eas build --platform all --profile production
 - Tek oyunculu yerel yapay zekâ: rahat, dengeli ve usta zorluklar.
 - 12+ açılabilir seviye, yıldız ve galibiyet ilerlemesi.
 - Günlük, tarih tabanlı değişen tahta ve seri sayacı.
-- Çevrimdışı oynanış; hesap, reklam, analitik ve ağ isteği yoktur.
+- Çevrimdışı tek oyunculu oynanış ve cihazdaki ilerleme kaydı.
 - AsyncStorage ile cihaz üzerinde ilerleme kaydı.
 - Dokunsal geri bildirim seçeneği, erişilebilir dokunma etiketleri ve hata sınırı.
 - Yerleşik, telifsiz nokta seçme, bağlama, üçgen kapatma, rakip, hata, zafer ve yenilgi ses efektleri.
-- Gerçek zamanlı iki oyunculu eşleştirme, sunucu tarafında hamle doğrulama ve rakip ayrılma/bağlantı durumları.
+- Gerçek zamanlı iki oyunculu eşleştirme, sunucu tarafında hamle doğrulama, rakip ayrılma/bağlantı durumları, kullanıcı adı ve avatarlar.
+- Kalıcı profil, kupa/altın/XP ödülleri, Bronz–Elmas ligleri, liderlik tablosu ve maç geçmişi.
 - iOS ve Android için uygulama kimliği, simge, açılış ekranı ve EAS üretim profilleri.
 
 ## Proje yapısı
@@ -70,7 +112,10 @@ src/game/types.ts        Veri modelleri
 src/components/GameBoard.tsx  Dokunulabilir oyun tahtası
 src/storage.ts           Yerel ilerleme kaydı
 src/components/OnlineMatchScreen.tsx  Çevrimiçi eşleştirme ve oyun ekranı
-server/index.mjs         Socket.IO eşleştirme ve oyun doğrulama sunucusu
+src/components/ProfileScreen.tsx  Avatar, profil, liderlik tablosu ve maç geçmişi
+src/profile/              Kimlik, profil API'si ve veri modelleri
+server/index.mjs         Socket.IO, profil/ödül API'si, SQLite ve avatar sunucusu
+server/.env.example      Canlı sunucu ortam ayarları örneği
 assets/icon.png          Uygulama simgesi ve açılış görseli
 app.json                 Expo / iOS / Android yapılandırması
 eas.json                 EAS derleme profilleri
