@@ -82,6 +82,12 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
       completeRef.current = true;
       setPendingMove(false);
       setSelectedDotId(null);
+      setMatch((current) => current?.roomId === nextResult.roomId ? {
+        ...current,
+        scores: nextResult.scores,
+        players: nextResult.players,
+        isComplete: true,
+      } : current);
       const assignedColor = colorRef.current;
       const outcome = !assignedColor || nextResult.winner === 'draw' ? 'draw' : nextResult.winner === assignedColor ? 'win' : 'loss';
       const nextProfile = assignedColor ? nextResult.players[assignedColor] : null;
@@ -183,6 +189,9 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
   const didWin = color && result ? result.winner === color : false;
   const didDraw = result?.winner === 'draw';
   const ownReward = color && result ? result.rewards[color] : null;
+  const resultOpponent = color && result ? result.players[color === 'blue' ? 'red' : 'blue'] : opponent;
+  const finalPlayerScore = color && result ? result.scores[color] : localGame?.playerScore;
+  const finalOpponentScore = color && result ? result.scores[color === 'blue' ? 'red' : 'blue'] : localGame?.rivalScore;
   const resultTitle = didWin ? 'Eşleşmeyi kazandın!' : didDraw ? 'Eşleşme berabere.' : 'Rövanş vakti.';
   return (
     <View style={styles.screen}>
@@ -219,8 +228,8 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
           <View style={styles.resultCard}>
             <Text style={styles.resultIcon}>{didWin ? '✦' : didDraw ? '≈' : '◌'}</Text>
             <Text style={styles.resultTitle}>{resultTitle}</Text>
-            <Text style={styles.resultOpponent}>{opponent ? `${opponent.displayName} ile oynadın` : 'Maç sonucu sunucuda kaydedildi'}</Text>
-            <Text style={styles.resultScore}>{localGame?.playerScore} : {localGame?.rivalScore}</Text>
+            <Text style={styles.resultOpponent}>{resultOpponent ? `${resultOpponent.displayName} ile oynadın` : 'Maç sonucu sunucuda kaydedildi'}</Text>
+            <Text style={styles.resultScore}>{finalPlayerScore ?? 0} : {finalOpponentScore ?? 0}</Text>
             {ownReward && <View style={styles.rewards}>
               <Reward label="KUPA" value={ownReward.trophyDelta} symbol="🏆" color="#FFC857" />
               <Reward label="ALTIN" value={ownReward.coinDelta} symbol="✦" color="#F6C84E" />
