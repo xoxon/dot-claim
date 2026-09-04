@@ -5,8 +5,8 @@ import type { LeaderboardEntry, MatchHistoryItem, PlayerProfile } from './types'
 
 export const MATCH_SERVER_URL = (process.env.EXPO_PUBLIC_MATCH_SERVER_URL ?? (__DEV__ ? 'http://127.0.0.1:3001' : '')).replace(/\/$/, '');
 
-const TOKEN_KEY = '@dot-claim/auth-token-v1';
-const DEVICE_KEY = '@dot-claim/device-id-v1';
+const TOKEN_KEY = 'dot-claim.auth-token-v1';
+const DEVICE_KEY = 'dot-claim.device-id-v1';
 
 type ApiFailure = Error & { status?: number };
 

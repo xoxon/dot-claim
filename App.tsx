@@ -30,6 +30,7 @@ export default function App() {
   const [gameConfig, setGameConfig] = useState<{ level: number; isDaily: boolean }>({ level: 1, isDaily: false });
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [account, setAccount] = useState<{ token: string; profile: PlayerProfile } | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   useEffect(() => {
     loadStats().then((stored) => {
@@ -38,15 +39,21 @@ export default function App() {
     });
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    loadAuthenticatedProfile()
-      .then((nextAccount) => {
-        if (active) setAccount(nextAccount);
-      })
-      .catch(() => undefined);
-    return () => { active = false; };
+  const connectProfile = useCallback(async () => {
+    setProfileError(null);
+    try {
+      const nextAccount = await loadAuthenticatedProfile();
+      setAccount(nextAccount);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Bilinmeyen bağlantı hatası.';
+      console.warn('Profil bağlantısı kurulamadı:', message);
+      setProfileError(message);
+    }
   }, []);
+
+  useEffect(() => {
+    void connectProfile();
+  }, [connectProfile]);
 
   const updateStats = useCallback((updater: (current: PlayerStats) => PlayerStats) => {
     setStats((current) => {
@@ -136,7 +143,12 @@ export default function App() {
         ) : account ? (
           <ProfileScreen profile={account.profile} token={account.token} onBack={() => setScreen('home')} onProfileUpdated={onProfileUpdated} />
         ) : (
-          <View style={styles.accountLoading}><Text style={styles.loadingText}>Profil sunucuya bağlanıyor…</Text><SecondaryButton label="Ana sayfa" onPress={() => setScreen('home')} /></View>
+          <View style={styles.accountLoading}>
+            <Text style={styles.loadingText}>{profileError ? 'Profil bağlantısı kurulamadı.' : 'Profil sunucuya bağlanıyor…'}</Text>
+            {profileError ? <Text style={styles.accountError}>{profileError}</Text> : null}
+            <PrimaryButton label="Tekrar dene" onPress={() => void connectProfile()} />
+            <SecondaryButton label="Ana sayfa" onPress={() => setScreen('home')} />
+          </View>
         )}
           <SettingsModal
             visible={settingsVisible}
@@ -545,4 +557,5 @@ const styles = StyleSheet.create({
   fatalTitle: { color: '#F7FBFF', fontSize: 23, fontWeight: '800' },
   fatalText: { color: '#AABCCB', fontSize: 15, marginTop: 8 },
   accountLoading: { flex: 1, backgroundColor: '#07111F', alignItems: 'center', justifyContent: 'center', padding: 28, gap: 16 },
+  accountError: { color: '#FF9AAC', fontSize: 13, lineHeight: 19, textAlign: 'center' },
 });
