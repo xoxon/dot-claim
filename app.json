@@ -10,14 +10,14 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.dotclaim",
+      "bundleIdentifier": "com.barismetinyilmaz.dotclaim",
       "buildNumber": "3",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.example.dotclaim",
+      "package": "com.barismetinyilmaz.dotclaim",
       "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
