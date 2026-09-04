@@ -445,7 +445,7 @@ function supportPage(response) {
     <p><strong>Profilim ve ilerlemem nerede?</strong><br />Kullanıcı adı, avatar, kupa, XP ve çevrimiçi maç sonuçları eşleşme sunucusunda saklanır. Ayrıntılar için <a href="/privacy">Gizlilik Politikası</a> sayfasını okuyun.</p>
     <p><strong>Hesabımı nasıl silerim?</strong><br />Uygulamada profilini açın, sayfanın altındaki “Hesabımı sil” seçeneğine dokunun. Kullanıcı adı, avatar, erişim anahtarları ve hesabınızla ilişkili çevrimiçi maç kayıtları silinir.</p>
     <h2>Yardım iste</h2>
-    <p>Bir hata bildirimi veya destek isteği için <a href="https://github.com/xoxon/dot-claim/issues">Dot Claim destek sayfasını</a> kullanın. Lütfen uygulama sürümünü, cihaz modelini ve sorunu yeniden oluşturma adımlarını ekleyin.</p>
+    <p>Bir hata bildirimi veya destek isteği için <a href="mailto:xoxon1@gmail.com">xoxon1@gmail.com</a> adresine yazın ya da <a href="https://github.com/xoxon/dot-claim/issues">Dot Claim destek sayfasını</a> kullanın. Lütfen uygulama sürümünü, cihaz modelini ve sorunu yeniden oluşturma adımlarını ekleyin.</p>
     <p class="muted">Son güncelleme: 4 Eylül 2026</p>
   `);
 }
@@ -470,7 +470,7 @@ function privacyPage(response) {
     <h2>Çocukların gizliliği</h2>
     <p>Uygulama özel nitelikli bilgi, konum, kişi listesi veya ödeme bilgisi istemez. Kullanıcılar yalnızca oyun için uygun bir kullanıcı adı ve isteğe bağlı avatar paylaşmalıdır.</p>
     <h2>İletişim</h2>
-    <p>Gizlilikle ilgili talepler ve sorular için <a href="https://github.com/xoxon/dot-claim/issues">Dot Claim destek sayfasını</a> kullanın.</p>
+    <p>Gizlilikle ilgili talepler ve sorular için <a href="mailto:xoxon1@gmail.com">xoxon1@gmail.com</a> adresine yazın veya <a href="https://github.com/xoxon/dot-claim/issues">Dot Claim destek sayfasını</a> kullanın.</p>
     <p class="muted">Yürürlük tarihi: 4 Eylül 2026</p>
   `);
 }
