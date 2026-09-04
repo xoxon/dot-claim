@@ -14,7 +14,7 @@ import { Avatar } from './ProfileScreen';
 
 const SERVER_URL = MATCH_SERVER_URL;
 
-type ConnectionState = 'connecting' | 'waiting' | 'playing' | 'opponent_left' | 'error';
+type ConnectionState = 'connecting' | 'waiting' | 'matched' | 'playing' | 'opponent_left' | 'error';
 
 export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onProfileUpdated }: {
   difficulty: Difficulty;
@@ -59,6 +59,14 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
     socket.on('match_found', ({ color: assignedColor, state }: { color: MatchColor; state: OnlineMatchState }) => {
       setColor(assignedColor);
       colorRef.current = assignedColor;
+      setMatch(state);
+      setConnection('matched');
+      lastMoveRef.current = 0;
+    });
+    socket.on('match_ready', ({ roomId, ready }: { roomId: string; ready: Record<MatchColor, boolean> }) => {
+      setMatch((current) => current?.roomId === roomId ? { ...current, ready } : current);
+    });
+    socket.on('game_started', ({ state }: { state: OnlineMatchState }) => {
       setMatch(state);
       setConnection('playing');
       lastMoveRef.current = 0;
@@ -155,8 +163,15 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
     socketRef.current?.emit('play_move', { roomId: match.roomId, a: selectedDotId, b: id });
   };
 
+  const startMatch = () => {
+    if (!match || !color || match.ready[color]) return;
+    setMatch((current) => current ? { ...current, ready: { ...current.ready, [color]: true } } : current);
+    socketRef.current?.emit('start_match', { roomId: match.roomId });
+  };
+
   const title = connection === 'connecting' ? 'Sunucuya bağlanılıyor…'
-    : connection === 'waiting' ? 'Rakip aranıyor…'
+      : connection === 'waiting' ? 'Rakip aranıyor…'
+      : connection === 'matched' ? 'Rakibin bulundu!'
       : connection === 'opponent_left' ? 'Rakip ayrıldı.'
         : connection === 'error' ? 'Bağlantı kurulamadı.'
           : localGame?.isComplete ? 'Eşleşme tamamlandı.'
@@ -176,7 +191,9 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
         <View style={[styles.connection, { backgroundColor: connection === 'playing' ? '#38D5AA' : connection === 'error' || connection === 'opponent_left' ? '#FF6680' : '#FFC857' }]} />
       </View>
 
-      {localGame ? (
+      {connection === 'matched' && color && match ? (
+        <MatchLobby match={match} color={color} onStart={startMatch} />
+      ) : localGame ? (
         <>
           <View style={styles.scoreCard}>
             <OnlineScore label="SEN" name={player?.displayName ?? 'Sen'} profile={player} score={localGame.playerScore} color="#58C7FF" active={localGame.turn === 'player' && !localGame.isComplete} />
@@ -218,6 +235,36 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
   );
 }
 
+function MatchLobby({ match, color, onStart }: { match: OnlineMatchState; color: MatchColor; onStart: () => void }) {
+  const opponentColor: MatchColor = color === 'blue' ? 'red' : 'blue';
+  const youReady = match.ready[color];
+  const opponentReady = match.ready[opponentColor];
+  return <View style={styles.lobbyCard}>
+    <Text style={styles.lobbyEyebrow}>EŞLEŞME BULUNDU</Text>
+    <Text style={styles.lobbyTitle}>Hazır mısınız?</Text>
+    <Text style={styles.lobbyText}>Tahta, iki oyuncu da oyuna hazır olduğunda açılır.</Text>
+    <View style={styles.lobbyPlayers}>
+      <LobbyPlayer label="SEN" profile={match.players[color]} ready={youReady} color="#58C7FF" />
+      <Text style={styles.vs}>VS</Text>
+      <LobbyPlayer label="RAKİP" profile={match.players[opponentColor]} ready={opponentReady} color="#FF6680" />
+    </View>
+    <View style={[styles.readyHint, opponentReady && styles.readyHintActive]}>
+      <View style={[styles.readyLight, { backgroundColor: opponentReady ? '#3DD6B8' : '#FFC857' }]} />
+      <Text style={styles.readyHintText}>{opponentReady ? 'Rakibin hazır. Senin onayın bekleniyor.' : 'Rakibinin hazır olmasını bekliyorsun.'}</Text>
+    </View>
+    <OnlineButton label={youReady ? 'Hazırsın · Rakip bekleniyor' : 'Oyuna başla'} onPress={onStart} disabled={youReady} />
+  </View>;
+}
+
+function LobbyPlayer({ label, profile, ready, color }: { label: string; profile: PlayerProfile; ready: boolean; color: string }) {
+  return <View style={styles.lobbyPlayer}>
+    <View style={[styles.lobbyAvatarRing, { borderColor: color }]}><Avatar profile={profile} size={58} /></View>
+    <Text style={styles.lobbyPlayerLabel}>{label}</Text>
+    <Text numberOfLines={1} style={styles.lobbyPlayerName}>{profile.displayName}</Text>
+    <View style={[styles.playerReady, ready && styles.playerReadyActive]}><Text style={[styles.playerReadyText, ready && styles.playerReadyTextActive]}>{ready ? 'Hazır' : 'Bekliyor'}</Text></View>
+  </View>;
+}
+
 function OnlineIconButton({ label, symbol, onPress }: { label: string; symbol: string; onPress: () => void }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.iconButton}><Text style={styles.iconText}>{symbol}</Text></Pressable>;
 }
@@ -233,8 +280,8 @@ function Reward({ label, value, symbol, color }: { label: string; value: number;
   return <View style={styles.reward}><Text style={[styles.rewardValue, { color }]}>{symbol} {value > 0 ? '+' : ''}{value}</Text><Text style={styles.rewardLabel}>{label}</Text></View>;
 }
 
-function OnlineButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.button}><Text style={styles.buttonText}>{label}</Text></Pressable>;
+function OnlineButton({ label, onPress, disabled = false }: { label: string; onPress: () => void; disabled?: boolean }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[styles.button, disabled && styles.buttonDisabled]}><Text style={styles.buttonText}>{label}</Text></Pressable>;
 }
 
 const styles = StyleSheet.create({
@@ -264,8 +311,27 @@ const styles = StyleSheet.create({
   waitingSymbol: { color: '#58C7FF', fontSize: 42, fontWeight: '800' },
   waitingTitle: { color: '#F7FBFF', fontSize: 22, fontWeight: '800', marginTop: 12, textAlign: 'center' },
   waitingText: { color: '#9AB0C2', fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 8 },
+  lobbyCard: { flex: 1, maxHeight: 450, justifyContent: 'center', alignItems: 'center', padding: 26, borderRadius: 28, backgroundColor: '#0E2035', borderWidth: 1, borderColor: '#285473', marginTop: 48 },
+  lobbyEyebrow: { color: '#58C7FF', fontSize: 11, letterSpacing: 1.3, fontWeight: '900' },
+  lobbyTitle: { color: '#F7FBFF', fontSize: 26, fontWeight: '900', marginTop: 8 },
+  lobbyText: { color: '#9AB0C2', fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 8 },
+  lobbyPlayers: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 26 },
+  lobbyPlayer: { width: '39%', alignItems: 'center' },
+  lobbyAvatarRing: { padding: 3, borderRadius: 35, borderWidth: 2 },
+  lobbyPlayerLabel: { color: '#91A5B9', fontSize: 10, letterSpacing: 1, fontWeight: '900', marginTop: 8 },
+  lobbyPlayerName: { color: '#F0F7FC', fontSize: 14, fontWeight: '800', marginTop: 3, maxWidth: '100%' },
+  vs: { color: '#7591A6', fontSize: 16, fontWeight: '900' },
+  playerReady: { marginTop: 8, borderRadius: 9, paddingHorizontal: 9, paddingVertical: 4, backgroundColor: '#1D2E40' },
+  playerReadyActive: { backgroundColor: '#143D39' },
+  playerReadyText: { color: '#91A5B9', fontSize: 10, fontWeight: '800' },
+  playerReadyTextActive: { color: '#5CE4BC' },
+  readyHint: { width: '100%', minHeight: 44, marginTop: 24, paddingHorizontal: 13, borderRadius: 13, backgroundColor: '#0B1C2E', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  readyHintActive: { backgroundColor: '#0C2C2E' },
+  readyLight: { width: 8, height: 8, borderRadius: 4 },
+  readyHintText: { color: '#C1D2DF', fontSize: 12, fontWeight: '700', flex: 1 },
   button: { marginTop: 22, minHeight: 48, borderRadius: 15, paddingHorizontal: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F7FBFF' },
   buttonText: { color: '#0B253A', fontSize: 16, fontWeight: '800' },
+  buttonDisabled: { backgroundColor: '#71879B' },
   scrim: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.76)', padding: 24, justifyContent: 'center' },
   resultCard: { borderRadius: 28, padding: 27, backgroundColor: '#10263D', borderWidth: 1, borderColor: '#35607E', alignItems: 'center' },
   resultIcon: { color: '#FFC857', fontSize: 42 },

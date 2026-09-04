@@ -188,6 +188,8 @@ function createMatch(difficulty, blueSocket, redSocket) {
     turn: 'blue',
     moveNumber: 0,
     maxMoves: difficulty === 'easy' ? 16 : difficulty === 'hard' ? 12 : 14,
+    started: false,
+    ready: { blue: false, red: false },
     isComplete: false,
     finalized: false,
     startedAt: now(),
@@ -260,6 +262,8 @@ function publicState(room) {
     turn: room.turn,
     moveNumber: room.moveNumber,
     maxMoves: room.maxMoves,
+    started: room.started,
+    ready: room.ready,
     isComplete: room.isComplete,
     players: { blue: room.players.blue.profile, red: room.players.red.profile },
   };
@@ -338,6 +342,13 @@ function removeRoom(room) {
   rooms.delete(room.id);
   socketRoom.delete(room.players.blue.socketId);
   socketRoom.delete(room.players.red.socketId);
+}
+
+function cancelUnstartedRoom(room) {
+  if (room.started || room.finalized) return;
+  room.finalized = true;
+  io.to(room.id).emit('opponent_left', { beforeStart: true });
+  removeRoom(room);
 }
 
 function finishRoom(room, { reason = 'completed', winnerOverride = null } = {}) {
@@ -603,10 +614,25 @@ io.on('connection', (socket) => {
     socket.emit('match_found', { roomId: room.id, color: 'red', state: publicState(room) });
   });
 
+  socket.on('start_match', ({ roomId } = {}) => {
+    const room = rooms.get(roomId);
+    const role = room ? roleFor(room, socket.id) : null;
+    if (!room || !role || socketRoom.get(socket.id) !== roomId || room.finalized) {
+      return socket.emit('move_rejected', { message: 'Eşleşme bulunamadı. Lütfen yeniden eşleşin.' });
+    }
+    if (room.started) return;
+    room.ready[role] = true;
+    io.to(room.id).emit('match_ready', { roomId: room.id, ready: room.ready });
+    if (!room.ready.blue || !room.ready.red) return;
+    room.started = true;
+    io.to(room.id).emit('game_started', { state: publicState(room) });
+  });
+
   socket.on('play_move', ({ roomId, a, b } = {}) => {
     const room = rooms.get(roomId);
     const role = room ? roleFor(room, socket.id) : null;
     if (!room || !role || socketRoom.get(socket.id) !== roomId || room.finalized) return socket.emit('move_rejected', { message: 'Eşleşme bulunamadı. Lütfen yeniden eşleşin.' });
+    if (!room.started) return socket.emit('move_rejected', { message: 'Her iki oyuncu da Oyuna başla düğmesine dokunmalı.' });
     if (room.turn !== role) return socket.emit('move_rejected', { message: 'Şimdi rakibinizin sırası.' });
     if (!canConnect(room, a, b)) return socket.emit('move_rejected', { message: 'Bu bağlantı kullanılamaz.' });
     makeMove(room, a, b, role);
@@ -618,6 +644,7 @@ io.on('connection', (socket) => {
     leaveWaiting(socket.id);
     const room = rooms.get(socketRoom.get(socket.id));
     if (!room || room.finalized) return;
+    if (!room.started) return cancelUnstartedRoom(room);
     const role = roleFor(room, socket.id);
     if (role) finishRoom(room, { reason: 'forfeit', winnerOverride: role === 'blue' ? 'red' : 'blue' });
   });
@@ -626,6 +653,7 @@ io.on('connection', (socket) => {
     leaveWaiting(socket.id);
     const room = rooms.get(socketRoom.get(socket.id));
     if (!room || room.finalized) return;
+    if (!room.started) return cancelUnstartedRoom(room);
     const role = roleFor(room, socket.id);
     if (role) finishRoom(room, { reason: 'forfeit', winnerOverride: role === 'blue' ? 'red' : 'blue' });
   });

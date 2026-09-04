@@ -26,6 +26,8 @@ export type OnlineMatchState = {
   turn: MatchColor;
   moveNumber: number;
   maxMoves: number;
+  started: boolean;
+  ready: Record<MatchColor, boolean>;
   isComplete: boolean;
   players: Record<MatchColor, PlayerProfile>;
 };
