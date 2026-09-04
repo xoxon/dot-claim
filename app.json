@@ -47,6 +47,12 @@
         }
       ],
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7bc3a993-abb1-425a-8c2e-eff4856d0d77"
+      }
+    },
+    "owner": "xoxon"
   }
 }
