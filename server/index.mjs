@@ -394,13 +394,85 @@ function applyCors(request, response) {
   response.setHeader('Access-Control-Allow-Origin', allowedOrigin(request));
   response.setHeader('Vary', 'Origin');
   response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
 }
 
 function sendJson(request, response, status, payload) {
   applyCors(request, response);
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   response.end(JSON.stringify(payload));
+}
+
+function sendHtml(response, status, title, body) {
+  response.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'public, max-age=3600',
+    'Content-Security-Policy': "default-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  response.end(`<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Dot Claim destek ve gizlilik bilgileri" />
+    <title>${title} · Dot Claim</title>
+    <style>
+      :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      body { margin: 0; background: #07111f; color: #eaf3fa; line-height: 1.6; }
+      main { max-width: 760px; margin: 0 auto; padding: 48px 24px 64px; }
+      .brand { color: #58c7ff; font-size: .78rem; font-weight: 900; letter-spacing: .2em; }
+      h1 { font-size: clamp(2rem, 8vw, 3rem); line-height: 1.05; margin: .5rem 0 1.2rem; }
+      h2 { margin-top: 2.2rem; color: #f7fbff; font-size: 1.25rem; }
+      p, li { color: #bfd0df; }
+      a { color: #72d3ff; }
+      .card { padding: 20px; border: 1px solid #285473; border-radius: 18px; background: #102b43; }
+      .muted { color: #8ea6ba; font-size: .9rem; }
+    </style>
+  </head>
+  <body><main>${body}</main></body>
+</html>`);
+}
+
+function supportPage(response) {
+  return sendHtml(response, 200, 'Destek', `
+    <div class="brand">DOT CLAIM</div>
+    <h1>Destek</h1>
+    <div class="card"><strong>Dot Claim</strong>, noktaları birleştirip üçgen alanları sahiplenmeye dayalı çevrimiçi bir strateji oyunudur.</div>
+    <h2>Sık sorulanlar</h2>
+    <p><strong>Çevrimiçi oyun nasıl başlar?</strong><br />Ana ekrandan “Çevrimiçi rakip ara”yı seçin. Bir rakiple eşleştiğinizde iki oyuncu da “Oyuna başla” düğmesine dokunur.</p>
+    <p><strong>Profilim ve ilerlemem nerede?</strong><br />Kullanıcı adı, avatar, kupa, XP ve çevrimiçi maç sonuçları eşleşme sunucusunda saklanır. Ayrıntılar için <a href="/privacy">Gizlilik Politikası</a> sayfasını okuyun.</p>
+    <p><strong>Hesabımı nasıl silerim?</strong><br />Uygulamada profilini açın, sayfanın altındaki “Hesabımı sil” seçeneğine dokunun. Kullanıcı adı, avatar, erişim anahtarları ve hesabınızla ilişkili çevrimiçi maç kayıtları silinir.</p>
+    <h2>Yardım iste</h2>
+    <p>Bir hata bildirimi veya destek isteği için <a href="https://github.com/xoxon/dot-claim/issues">Dot Claim destek sayfasını</a> kullanın. Lütfen uygulama sürümünü, cihaz modelini ve sorunu yeniden oluşturma adımlarını ekleyin.</p>
+    <p class="muted">Son güncelleme: 4 Eylül 2026</p>
+  `);
+}
+
+function privacyPage(response) {
+  return sendHtml(response, 200, 'Gizlilik Politikası', `
+    <div class="brand">DOT CLAIM</div>
+    <h1>Gizlilik Politikası</h1>
+    <p>Bu politika, Dot Claim uygulamasının çevrimiçi eşleşme ve profil özellikleri için hangi verileri işlediğini açıklar.</p>
+    <h2>İşlenen veriler</h2>
+    <ul>
+      <li><strong>Uygulama içi kimlik:</strong> Her yükleme için rastgele oluşturulan uygulama kimliği ve oturum anahtarı.</li>
+      <li><strong>Profil verileri:</strong> Seçtiğiniz kullanıcı adı ve isteğe bağlı avatar fotoğrafı.</li>
+      <li><strong>Oyun verileri:</strong> Çevrimiçi eşleşmeler, hamle sonuçları, skorlar, kupa, altın, XP ve maç geçmişi.</li>
+    </ul>
+    <h2>Neden işliyoruz?</h2>
+    <p>Bu veriler yalnızca kullanıcı profilini sağlamak, iki oyuncuyu eşleştirmek, oyunun sonucunu doğrulamak, sıralamayı göstermek ve hileyi önlemek için kullanılır. Reklam gösterilmez, reklam kimliği kullanılmaz, uygulama içi davranışınız başka uygulama veya sitelerde takip edilmez ve veriler satılmaz.</p>
+    <h2>Kimler görebilir?</h2>
+    <p>Çevrimiçi oynadığınız rakipler ve liderlik tablosunu görüntüleyen diğer oyuncular, kullanıcı adınızı, avatarınızı, liginizi ve oyunla ilgili genel istatistiklerinizi görebilir. Avatarınız yalnızca siz yüklemeyi seçerseniz işlenir.</p>
+    <h2>Saklama ve silme</h2>
+    <p>Profil ve oyun verileri hesabınız etkin olduğu sürece saklanır. Uygulamada <strong>Profil → Hesabımı sil</strong> yolunu izleyerek hesabınızı kalıcı olarak silebilirsiniz. Bu işlem kullanıcı adı, avatar, oturum anahtarları ve hesabınızla ilişkili çevrimiçi maç kayıtlarını sunucudan kaldırır. Silme işlemi geri alınamaz.</p>
+    <h2>Çocukların gizliliği</h2>
+    <p>Uygulama özel nitelikli bilgi, konum, kişi listesi veya ödeme bilgisi istemez. Kullanıcılar yalnızca oyun için uygun bir kullanıcı adı ve isteğe bağlı avatar paylaşmalıdır.</p>
+    <h2>İletişim</h2>
+    <p>Gizlilikle ilgili talepler ve sorular için <a href="https://github.com/xoxon/dot-claim/issues">Dot Claim destek sayfasını</a> kullanın.</p>
+    <p class="muted">Yürürlük tarihi: 4 Eylül 2026</p>
+  `);
 }
 
 function sendError(request, response, status, message) {
@@ -502,6 +574,8 @@ async function handleHttp(request, response) {
     return;
   }
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+  if (request.method === 'GET' && url.pathname === '/support') return supportPage(response);
+  if (request.method === 'GET' && url.pathname === '/privacy') return privacyPage(response);
   if (request.method === 'GET' && url.pathname.startsWith('/uploads/avatars/')) return serveAvatar(request, response, url.pathname);
   if (request.method === 'GET' && url.pathname === '/health') return sendJson(request, response, 200, { ok: true, database: 'ready' });
 
@@ -559,6 +633,25 @@ async function handleHttp(request, response) {
     renameSync(temporary, target);
     database.prepare('UPDATE users SET avatar_path = ?, avatar_version = avatar_version + 1, updated_at = ? WHERE id = ?').run(`/uploads/avatars/${user.id}.${format.extension}`, now(), user.id);
     return sendJson(request, response, 200, { profile: publicUser(getUserById(user.id)) });
+  }
+
+  if (request.method === 'DELETE' && url.pathname === '/v1/me') {
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const inActiveMatch = [...rooms.values()].some((room) => !room.isComplete && Object.values(room.players).some((player) => player.userId === user.id));
+    if (inActiveMatch) return sendError(request, response, 409, 'Çevrim içi maç bittiğinde hesabını silebilirsin.');
+    database.transaction(() => {
+      database.prepare('DELETE FROM matches WHERE blue_user_id = ? OR red_user_id = ?').run(user.id, user.id);
+      database.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+    })();
+    for (const extension of ['jpg', 'png', 'webp']) {
+      const avatar = join(AVATAR_DIRECTORY, `${user.id}.${extension}`);
+      if (existsSync(avatar)) unlinkSync(avatar);
+    }
+    applyCors(request, response);
+    response.writeHead(204, { 'Cache-Control': 'no-store' });
+    response.end();
+    return;
   }
 
   if (request.method === 'GET' && url.pathname === '/v1/leaderboard') {

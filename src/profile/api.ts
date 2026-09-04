@@ -73,6 +73,21 @@ export async function uploadAvatar(token: string, base64: string) {
   return (await parseResponse<{ profile: PlayerProfile }>(response)).profile;
 }
 
+export async function deleteAccount(token: string) {
+  const response = await fetch(endpoint('/v1/me'), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? 'Hesap silinemedi.');
+  }
+  await Promise.all([
+    SecureStore.deleteItemAsync(TOKEN_KEY),
+    SecureStore.deleteItemAsync(DEVICE_KEY),
+  ]);
+}
+
 export async function fetchLeaderboard() {
   const response = await fetch(endpoint('/v1/leaderboard?limit=20'));
   return (await parseResponse<{ leaderboard: LeaderboardEntry[] }>(response)).leaderboard;

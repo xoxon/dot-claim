@@ -147,7 +147,16 @@ export default function App() {
               onProfileUpdated={onProfileUpdated}
             />
           ) : account ? (
-          <ProfileScreen profile={account.profile} token={account.token} onBack={() => setScreen('home')} onProfileUpdated={onProfileUpdated} />
+          <ProfileScreen
+            profile={account.profile}
+            token={account.token}
+            onBack={() => setScreen('home')}
+            onProfileUpdated={onProfileUpdated}
+            onAccountDeleted={() => {
+              setAccount(null);
+              setScreen('home');
+            }}
+          />
         ) : (
           <View style={styles.accountLoading}>
             <Text style={styles.loadingText}>{profileError ? 'Profil bağlantısı kurulamadı.' : 'Profil sunucuya bağlanıyor…'}</Text>

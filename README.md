@@ -38,6 +38,7 @@ Evet, bu verileri kalıcı bir veritabanında tutmak gerekir. Sunucu, ek servis 
 - `server/uploads/avatars/`: kullanıcıların yüklediği avatar görselleri.
 - Uygulama ilk açılışta güvenli cihaz anahtarlığında saklanan anonim bir hesap oluşturur. Kullanıcı adı ve avatar daha sonra değiştirilebilir.
 - Avatarlar telefon üzerinde 512×512 JPEG'e küçültülür; sunucu JPG/PNG/WebP doğrulaması yapar, 900 KB sınırı uygular ve yalnızca kendi avatar klasörüne yazar.
+- Profil ekranındaki **Hesabımı sil** seçeneği kullanıcı adı, avatar, erişim anahtarları ve ilgili çevrimiçi maç kayıtlarını kalıcı olarak kaldırır.
 - Maç bittiğinde sonuç sunucuda bir kez kayda alınır. Galibiyet: **+25 kupa, +50 altın, +100 XP**; beraberlik: **+8 kupa, +20 altın, +50 XP**; mağlubiyet: **-12 kupa, +20 XP**. Her üçüncü ardışık galibiyet ek **+30 altın** verir.
 - Ligler kupa puanından hesaplanır: Bronz, Gümüş (300), Altın (650), Elmas (1000).
 
@@ -70,6 +71,11 @@ curl -i https://match.barkodgenerator.com/health
 ```
 
 Son komutun `200` ve `database: ready` dönmesi gerekir. CloudPanel tarafında mevcut ters vekil kuralı `127.0.0.1:3001` adresine yönlendirmeye devam etmelidir. `server/data/` ve `server/uploads/` klasörlerini Git'e eklemeyin; bunlar canlı oyuncu verileridir. Düzenli yedeklemede ikisini birlikte saklayın.
+
+Gizlilik politikası ve destek sayfaları sunucu ile birlikte gelir:
+
+- `https://match.barkodgenerator.com/privacy`
+- `https://match.barkodgenerator.com/support`
 
 ## Yayına hazırlık
 

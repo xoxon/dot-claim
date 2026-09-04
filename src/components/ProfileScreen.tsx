@@ -3,14 +3,15 @@ import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View 
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
-import { fetchLeaderboard, fetchMatchHistory, resolveAvatarUrl, updateDisplayName, uploadAvatar } from '../profile/api';
+import { deleteAccount, fetchLeaderboard, fetchMatchHistory, resolveAvatarUrl, updateDisplayName, uploadAvatar } from '../profile/api';
 import type { LeaderboardEntry, MatchHistoryItem, PlayerProfile } from '../profile/types';
 
-export function ProfileScreen({ profile, token, onBack, onProfileUpdated }: {
+export function ProfileScreen({ profile, token, onBack, onProfileUpdated, onAccountDeleted }: {
   profile: PlayerProfile;
   token: string;
   onBack: () => void;
   onProfileUpdated: (profile: PlayerProfile) => void;
+  onAccountDeleted: () => void;
 }) {
   const [displayName, setDisplayName] = useState(profile.displayName);
   const [savingName, setSavingName] = useState(false);
@@ -18,6 +19,7 @@ export function ProfileScreen({ profile, token, onBack, onProfileUpdated }: {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [history, setHistory] = useState<MatchHistoryItem[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const canChangeDisplayName = profile.canChangeDisplayName !== false;
 
   const loadData = useCallback(async () => {
@@ -104,6 +106,32 @@ export function ProfileScreen({ profile, token, onBack, onProfileUpdated }: {
     }
   };
 
+  const removeAccount = async () => {
+    if (deletingAccount) return;
+    setDeletingAccount(true);
+    try {
+      await deleteAccount(token);
+      onAccountDeleted();
+      Alert.alert('Hesap silindi', 'Profilin, avatarın ve çevrimiçi maç verilerin kalıcı olarak silindi.');
+    } catch (error) {
+      Alert.alert('Hesap silinemedi', error instanceof Error ? error.message : 'Lütfen tekrar deneyin.');
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const confirmRemoveAccount = () => {
+    if (deletingAccount) return;
+    Alert.alert(
+      'Hesabı kalıcı olarak sil',
+      'Kullanıcı adın, avatarın, çevrimiçi profilin ve maç geçmişin silinecek. Bu işlem geri alınamaz.',
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        { text: 'Hesabımı sil', style: 'destructive', onPress: () => void removeAccount() },
+      ],
+    );
+  };
+
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.topRow}>
@@ -155,6 +183,14 @@ export function ProfileScreen({ profile, token, onBack, onProfileUpdated }: {
       <SectionTitle title="Son maçlar" subtitle={loadingData ? 'Yükleniyor…' : 'Ödüller ve sonuçlar'} />
       <View style={styles.listCard}>
         {history.length ? history.map((match) => <HistoryRow key={match.id} match={match} />) : <EmptyList text="İlk çevrimiçi maçın burada görünecek." />}
+      </View>
+
+      <View style={styles.deleteCard}>
+        <Text style={styles.deleteTitle}>Hesabımı sil</Text>
+        <Text style={styles.deleteText}>Kullanıcı adın, avatarın ve çevrimiçi maç verilerin kalıcı olarak silinir. Bu işlem geri alınamaz.</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Hesabımı kalıcı olarak sil" onPress={confirmRemoveAccount} disabled={deletingAccount} style={[styles.deleteButton, deletingAccount && styles.buttonDisabled]}>
+          <Text style={styles.deleteButtonText}>{deletingAccount ? 'Siliniyor…' : 'Hesabımı sil'}</Text>
+        </Pressable>
       </View>
     </ScrollView>
   );
@@ -248,6 +284,11 @@ const styles = StyleSheet.create({
   outcome: { fontSize: 12, fontWeight: '900' },
   historyReward: { color: '#B9CDDC', fontSize: 11, marginTop: 4 },
   empty: { color: '#8DA6BA', fontSize: 13, textAlign: 'center', padding: 22 },
+  deleteCard: { marginTop: 12, padding: 18, borderRadius: 20, backgroundColor: '#281927', borderWidth: 1, borderColor: '#63314B' },
+  deleteTitle: { color: '#FFD8E0', fontSize: 16, fontWeight: '900' },
+  deleteText: { color: '#D4AAB7', fontSize: 12, lineHeight: 18, marginTop: 7 },
+  deleteButton: { alignSelf: 'flex-start', minHeight: 42, paddingHorizontal: 15, marginTop: 14, borderRadius: 13, borderWidth: 1, borderColor: '#F07890', alignItems: 'center', justifyContent: 'center' },
+  deleteButtonText: { color: '#FFB9C6', fontSize: 13, fontWeight: '900' },
   avatarFallback: { backgroundColor: '#1C5575', alignItems: 'center', justifyContent: 'center' },
   avatarInitial: { color: '#EAF7FF', fontWeight: '900' },
 });
