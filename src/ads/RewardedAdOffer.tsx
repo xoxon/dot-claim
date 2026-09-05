@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Constants from 'expo-constants';
 import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -14,6 +14,8 @@ export type GoogleMobileAds = typeof import('react-native-google-mobile-ads');
 const LIVE_REWARDED_AD_UNIT_ID = 'ca-app-pub-6927228148817615/6183846492';
 export const isUsingTestAds = process.env.EXPO_PUBLIC_ADMOB_USE_TEST_ADS !== 'false';
 const IS_EXPO_GO = Constants.executionEnvironment === 'storeClient';
+
+let mobileAdsInitialization: Promise<GoogleMobileAds | null> | null = null;
 
 const OFFER_COPY: Record<RewardOfferTrigger, { eyebrow: string; title: string; detail: string }> = {
   levels: {
@@ -49,6 +51,39 @@ export function getGoogleMobileAds(): GoogleMobileAds | null {
   }
 }
 
+/**
+ * Starts the UMP consent flow and Mobile Ads SDK once per app launch. Keeping
+ * this separate from the result modal gives a rewarded request time to start
+ * before the player reaches the end-of-game checkpoint.
+ */
+export function prepareGoogleMobileAds(): Promise<GoogleMobileAds | null> {
+  const googleMobileAds = getGoogleMobileAds();
+  if (!googleMobileAds) return Promise.resolve(null);
+  if (mobileAdsInitialization) return mobileAdsInitialization;
+
+  mobileAdsInitialization = (async () => {
+    const { AdsConsent, default: mobileAds } = googleMobileAds;
+    try {
+      await AdsConsent.gatherConsent();
+    } catch {
+      // The SDK may still have a valid consent choice from an earlier launch.
+    }
+
+    const consent = await AdsConsent.getConsentInfo();
+    if (!consent.canRequestAds) {
+      throw new Error('Reklam izni henüz tamamlanmadı.');
+    }
+
+    await mobileAds().initialize();
+    return googleMobileAds;
+  })().catch((error) => {
+    mobileAdsInitialization = null;
+    throw error;
+  });
+
+  return mobileAdsInitialization;
+}
+
 export function RewardedAdOffer({ offer, onDismiss, onRewardEarned }: {
   offer: RewardOffer | null;
   onDismiss: () => void;
@@ -82,81 +117,117 @@ function NativeRewardedAdOffer({ googleMobileAds, offer, onDismiss, onRewardEarn
   onDismiss: () => void;
   onRewardEarned: (offer: RewardOffer, reward: { amount: number; type: string }) => void;
 }) {
-  const { AdsConsent, TestIds, default: mobileAds, useRewardedAd } = googleMobileAds;
+  const { AdEventType, RewardedAd, RewardedAdEventType, TestIds } = googleMobileAds;
   const [sdkReady, setSdkReady] = useState(false);
   const [sdkError, setSdkError] = useState<string | null>(null);
+  const [adState, setAdState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [adError, setAdError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const handledRewardRef = useRef(false);
+  const adRef = useRef<{ show: () => void } | null>(null);
+  const onDismissRef = useRef(onDismiss);
+  const onRewardEarnedRef = useRef(onRewardEarned);
   const adUnitId = isUsingTestAds ? TestIds.REWARDED : (process.env.EXPO_PUBLIC_ADMOB_REWARDED_UNIT_ID ?? LIVE_REWARDED_AD_UNIT_ID);
-  const requestOptions = useMemo(() => ({ requestNonPersonalizedAdsOnly: true }), []);
-  const { error, isClosed, isEarnedReward, isLoaded, load, reward, show } = useRewardedAd(sdkReady ? adUnitId : null, requestOptions);
+
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+    onRewardEarnedRef.current = onRewardEarned;
+  }, [onDismiss, onRewardEarned]);
 
   useEffect(() => {
     let active = true;
-    const initialize = async () => {
-      try {
-        await AdsConsent.gatherConsent();
-        const consent = await AdsConsent.getConsentInfo();
-        if (!consent.canRequestAds) {
-          if (active) setSdkError('Reklam izinleri henüz tamamlanmadı. Daha sonra tekrar deneyebilirsin.');
-          return;
-        }
-        await mobileAds().initialize();
+    void prepareGoogleMobileAds()
+      .then(() => {
         if (active) setSdkReady(true);
-      } catch {
-        // The UMP SDK can use the previous session's consent when the network is unavailable.
-        try {
-          await mobileAds().initialize();
-          if (active) setSdkReady(true);
-        } catch {
-          if (active) setSdkError('Reklam servisi şu anda hazırlanamadı.');
-        }
-      }
-    };
-    void initialize();
+      })
+      .catch((error) => {
+        if (active) setSdkError(toErrorDetail(error) ?? 'Reklam servisi şu anda hazırlanamadı.');
+      });
     return () => { active = false; };
-  }, [AdsConsent, mobileAds]);
+  }, []);
 
   useEffect(() => {
-    if (sdkReady) load();
-  }, [load, sdkReady]);
+    if (!sdkReady) return;
 
-  useEffect(() => {
-    if (!isEarnedReward || handledRewardRef.current) return;
-    handledRewardRef.current = true;
-    onRewardEarned(offer, { amount: reward?.amount ?? 0, type: reward?.type ?? 'ödül' });
-  }, [isEarnedReward, offer, onRewardEarned, reward?.amount, reward?.type]);
-
-  useEffect(() => {
-    if (!isClosed) return;
+    let active = true;
     handledRewardRef.current = false;
-    onDismiss();
-    load();
-  }, [isClosed, load, onDismiss]);
+    setAdState('loading');
+    setAdError(null);
+    const rewardedAd = RewardedAd.createForAdRequest(adUnitId, { requestNonPersonalizedAdsOnly: true });
+    adRef.current = rewardedAd;
+    const unsubscribe = rewardedAd.addAdEventsListener(({ type, payload }) => {
+      if (!active) return;
+
+      if (type === RewardedAdEventType.LOADED) {
+        setAdState('ready');
+        return;
+      }
+
+      if (type === RewardedAdEventType.EARNED_REWARD) {
+        if (handledRewardRef.current) return;
+        handledRewardRef.current = true;
+        const reward = payload as { amount?: number; type?: string };
+        onRewardEarnedRef.current(offer, { amount: reward.amount ?? 0, type: reward.type ?? 'ödül' });
+        return;
+      }
+
+      if (type === AdEventType.ERROR) {
+        setAdState('error');
+        setAdError(toErrorDetail(payload) ?? 'Bilinmeyen reklam hatası');
+        return;
+      }
+
+      if (type === AdEventType.CLOSED) {
+        adRef.current = null;
+        onDismissRef.current();
+      }
+    });
+
+    rewardedAd.load();
+    return () => {
+      active = false;
+      unsubscribe();
+      if (adRef.current === rewardedAd) adRef.current = null;
+    };
+  }, [AdEventType, RewardedAd, RewardedAdEventType, adUnitId, loadAttempt, offer]);
 
   const onAction = useCallback(() => {
-    if (isLoaded) {
-      show();
+    if (adState === 'ready' && adRef.current) {
+      try {
+        adRef.current.show();
+      } catch (error) {
+        setAdState('error');
+        setAdError(toErrorDetail(error) ?? 'Reklam açılamadı');
+      }
       return;
     }
-    if (sdkReady) load();
-  }, [isLoaded, load, sdkReady, show]);
+    if (sdkReady) setLoadAttempt((attempt) => attempt + 1);
+  }, [adState, sdkReady]);
 
-  const status = sdkError ?? (error
-    ? 'Test reklamı yüklenemedi. Bağlantını kontrol edip tekrar deneyebilirsin.'
+  const status = sdkError ?? (adState === 'error'
+    ? `Test reklamı yüklenemedi: ${adError ?? 'Bilinmeyen hata'}. Tekrar yükleyebilirsin.`
     : isUsingTestAds
       ? 'Google’ın güvenli test reklamı kullanılacak. Bu reklam gelir veya gerçek ödül üretmez.'
       : 'Reklam hazır olduğunda ödülünü alabilirsin.');
-  const actionLabel = sdkError ? 'Kapat' : error ? 'Tekrar dene' : isLoaded ? (isUsingTestAds ? 'Test reklamını izle' : 'Reklamı izle, ödülü al') : 'Reklam hazırlanıyor…';
+  const actionLabel = sdkError ? 'Kapat' : adState === 'error' ? 'Tekrar yükle' : adState === 'ready' ? (isUsingTestAds ? 'Test reklamını izle' : 'Reklamı izle, ödülü al') : 'Reklam hazırlanıyor…';
 
   return <OfferCard
     offer={offer}
     status={status}
     actionLabel={actionLabel}
-    actionDisabled={!sdkError && !error && !isLoaded}
-    loading={!sdkError && !error && !isLoaded}
+    actionDisabled={!sdkError && adState === 'loading'}
+    loading={!sdkError && adState === 'loading'}
     onAction={sdkError ? onDismiss : onAction}
     onDismiss={onDismiss}
   />;
+}
+
+function toErrorDetail(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return error instanceof Error ? error.message : null;
+  const candidate = error as { code?: unknown; message?: unknown };
+  const code = typeof candidate.code === 'string' ? candidate.code : null;
+  const message = typeof candidate.message === 'string' ? candidate.message : null;
+  return [code, message].filter(Boolean).join(': ') || null;
 }
 
 function OfferCard({ offer, status, actionLabel, actionDisabled = false, loading = false, onAction, onDismiss }: {
