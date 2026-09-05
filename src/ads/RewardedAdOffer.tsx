@@ -12,7 +12,7 @@ export type RewardOffer = {
 type GoogleMobileAds = typeof import('react-native-google-mobile-ads');
 
 const LIVE_REWARDED_AD_UNIT_ID = 'ca-app-pub-6927228148817615/6183846492';
-const USE_TEST_ADS = process.env.EXPO_PUBLIC_ADMOB_USE_TEST_ADS !== 'false';
+export const isUsingTestAds = process.env.EXPO_PUBLIC_ADMOB_USE_TEST_ADS !== 'false';
 const IS_EXPO_GO = Constants.executionEnvironment === 'storeClient';
 
 const OFFER_COPY: Record<RewardOfferTrigger, { eyebrow: string; title: string; detail: string }> = {
@@ -86,7 +86,7 @@ function NativeRewardedAdOffer({ googleMobileAds, offer, onDismiss, onRewardEarn
   const [sdkReady, setSdkReady] = useState(false);
   const [sdkError, setSdkError] = useState<string | null>(null);
   const handledRewardRef = useRef(false);
-  const adUnitId = USE_TEST_ADS ? TestIds.REWARDED : (process.env.EXPO_PUBLIC_ADMOB_REWARDED_UNIT_ID ?? LIVE_REWARDED_AD_UNIT_ID);
+  const adUnitId = isUsingTestAds ? TestIds.REWARDED : (process.env.EXPO_PUBLIC_ADMOB_REWARDED_UNIT_ID ?? LIVE_REWARDED_AD_UNIT_ID);
   const requestOptions = useMemo(() => ({ requestNonPersonalizedAdsOnly: true }), []);
   const { error, isClosed, isEarnedReward, isLoaded, load, reward, show } = useRewardedAd(sdkReady ? adUnitId : null, requestOptions);
 
@@ -143,10 +143,10 @@ function NativeRewardedAdOffer({ googleMobileAds, offer, onDismiss, onRewardEarn
 
   const status = sdkError ?? (error
     ? 'Test reklamı yüklenemedi. Bağlantını kontrol edip tekrar deneyebilirsin.'
-    : USE_TEST_ADS
+    : isUsingTestAds
       ? 'Google’ın güvenli test reklamı kullanılacak. Bu reklam gelir veya gerçek ödül üretmez.'
       : 'Reklam hazır olduğunda ödülünü alabilirsin.');
-  const actionLabel = sdkError ? 'Kapat' : error ? 'Tekrar dene' : isLoaded ? (USE_TEST_ADS ? 'Test reklamını izle' : 'Reklamı izle, ödülü al') : 'Reklam hazırlanıyor…';
+  const actionLabel = sdkError ? 'Kapat' : error ? 'Tekrar dene' : isLoaded ? (isUsingTestAds ? 'Test reklamını izle' : 'Reklamı izle, ödülü al') : 'Reklam hazırlanıyor…';
 
   return <OfferCard
     offer={offer}

@@ -7,7 +7,7 @@ import { useGameSounds } from './src/audio';
 import { GameBoard } from './src/components/GameBoard';
 import { OnlineMatchScreen } from './src/components/OnlineMatchScreen';
 import { ProfileScreen } from './src/components/ProfileScreen';
-import { RewardedAdOffer, type RewardOffer, type RewardOfferTrigger } from './src/ads/RewardedAdOffer';
+import { isUsingTestAds, RewardedAdOffer, type RewardOffer, type RewardOfferTrigger } from './src/ads/RewardedAdOffer';
 import { PLAYER_COLOR, RIVAL_COLOR, canConnect, createGame, pickRivalMove, playMove } from './src/game/engine';
 import { getLevelLabel } from './src/game/levels';
 import { loadStats, saveStats } from './src/storage';
@@ -441,7 +441,7 @@ function SettingsModal({ visible, stats, onClose, onToggleHaptics, onToggleSound
           <View style={styles.settingsHeader}><Text style={styles.settingsTitle}>Ayarlar</Text><IconButton label="Ayarları kapat" symbol="×" onPress={onClose} /></View>
           <SettingRow title="Dokunsal geri bildirim" subtitle="Hamlelerde titreşim" value={stats.hapticsEnabled} onChange={onToggleHaptics} />
           <SettingRow title="Ses efektleri" subtitle="Oyun hamleleri ve sonuçları" value={stats.soundEnabled} onChange={onToggleSound} />
-          {__DEV__ ? <Pressable accessibilityRole="button" accessibilityLabel="Ödüllü test reklamını aç" onPress={onOpenTestAd} style={({ pressed }) => [styles.testAdButton, pressed && styles.pressed]}><Text style={styles.testAdTitle}>Ödüllü test reklamı</Text><Text style={styles.testAdText}>Google test reklamını şimdi kontrol et</Text></Pressable> : null}
+          {isUsingTestAds ? <Pressable accessibilityRole="button" accessibilityLabel="Ödüllü test reklamını aç" onPress={onOpenTestAd} style={({ pressed }) => [styles.testAdButton, pressed && styles.pressed]}><Text style={styles.testAdTitle}>Ödüllü test reklamı</Text><Text style={styles.testAdText}>Google test reklamını şimdi kontrol et</Text></Pressable> : null}
           <Text style={styles.settingsFootnote}>Çevrimiçi profilin, avatarın ve maç ilerlemen eşleşme sunucusunda saklanır. Avatarını istediğin zaman değiştirebilirsin.</Text>
         </View>
       </View>
