@@ -11,6 +11,30 @@ npx expo start
 
 Expo açıldıktan sonra iOS Simulator, Android emulator veya Expo Go ile açabilirsiniz.
 
+## AdMob ödüllü reklamlar
+
+Ödüllü reklamlar kullanıcının açık onayıyla gösterilir; reklam otomatik açılmaz. Uygulama aşağıdaki noktalarda teklif ekranını gösterir:
+
+- Yeni tamamlanan her iki tek oyunculu bölümden sonra.
+- Günlük meydan okuma sonucu ilk kez tamamlandığında, günde bir kez.
+- Her tamamlanan çevrimiçi maçın sonunda.
+
+Bu sürüm varsayılan olarak Google'ın test reklam birimini kullanır. Ayarlar ekranındaki **Ödüllü test reklamı** düğmesiyle akışı oyunu bitirmeden kontrol edebilirsiniz. Google Mobile Ads yerel bir SDK olduğu için Expo Go'da gerçek reklam açılmaz; iOS testinde özel geliştirme uygulaması gerekir:
+
+```bash
+npx eas build --platform ios --profile development
+npx expo start --dev-client
+```
+
+`eas.json` geliştirme profili canlı maç sunucusunu ve test reklamlarını otomatik kullanır. Yayına geçmeden önce EAS ortam değişkenlerinde aşağıdakileri ayarlayın:
+
+```text
+EXPO_PUBLIC_ADMOB_USE_TEST_ADS=false
+EXPO_PUBLIC_ADMOB_REWARDED_UNIT_ID=ca-app-pub-6927228148817615/6183846492
+```
+
+Gerçek altın, XP veya başka hesap değerleri reklam istemcisinden doğrudan eklenmemelidir. Önce AdMob'da Server Side Verification (SSV) çağrı adresini tanımlayıp sunucunun imzalı ödül isteğini doğrulamasını ekleyin. Ayrıca reklamlara geçmeden önce App Store Connect'teki gizlilik beyanı ve mağaza açıklamasındaki “reklamsız” ifadeleri güncelleyin. Android yayını yapmadan önce `app.json` içindeki test `androidAppId` değerini kendi Android AdMob uygulama kimliğinizle değiştirmelisiniz.
+
 ## Çevrimiçi iki kişilik oyun
 
 Oyuncular `Çevrimiçi rakip ara` düğmesinden aynı zorlukta eşleşir. Sunucu, her hamleyi doğrular; bu nedenle istemciler skor, sıra veya tahta durumunu değiştiremez. Eşleşme kartında iki oyuncunun avatarı ve kullanıcı adı görünür.

@@ -46,7 +46,15 @@
           "photosPermission": "Profil avatarını seçebilmek için fotoğraf arşivine erişim gerekir."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "iosAppId": "ca-app-pub-6927228148817615~4156448954",
+          "delayAppMeasurementInit": true
+        }
+      ]
     ],
     "extra": {
       "eas": {

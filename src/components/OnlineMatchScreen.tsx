@@ -16,7 +16,7 @@ const SERVER_URL = MATCH_SERVER_URL;
 
 type ConnectionState = 'connecting' | 'waiting' | 'matched' | 'playing' | 'opponent_left' | 'error';
 
-export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onPlayAgain, onProfileUpdated }: {
+export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onPlayAgain, onProfileUpdated, onMatchCompleted }: {
   difficulty: Difficulty;
   profile: PlayerProfile | null;
   token: string | null;
@@ -25,6 +25,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
   onBack: () => void;
   onPlayAgain: () => void;
   onProfileUpdated: (profile: PlayerProfile) => void;
+  onMatchCompleted: () => void;
 }) {
   const { width } = useWindowDimensions();
   const socketRef = useRef<Socket | null>(null);
@@ -97,6 +98,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
       playSound(outcome === 'win' ? 'victory' : 'defeat');
       haptic(outcome === 'win' ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light);
       setResultVisible(true);
+      onMatchCompleted();
     });
     socket.on('move_rejected', ({ message }: { message: string }) => {
       setPendingMove(false);
@@ -117,7 +119,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [difficulty, haptic, onProfileUpdated, playSound, profile, token]);
+  }, [difficulty, haptic, onMatchCompleted, onProfileUpdated, playSound, profile, token]);
 
   const localGame = useMemo<GameState | null>(() => {
     if (!match || !color) return null;

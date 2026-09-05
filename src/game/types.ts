@@ -43,6 +43,8 @@ export type PlayerStats = {
   losses: number;
   dailyStreak: number;
   lastDailyDate: string | null;
+  completedLevelsSinceRewardOffer: number;
+  lastDailyRewardOfferDate: string | null;
   soundEnabled: boolean;
   hapticsEnabled: boolean;
   soundSettingsVersion: number;
@@ -55,6 +57,8 @@ export const DEFAULT_STATS: PlayerStats = {
   losses: 0,
   dailyStreak: 0,
   lastDailyDate: null,
+  completedLevelsSinceRewardOffer: 0,
+  lastDailyRewardOfferDate: null,
   soundEnabled: true,
   hapticsEnabled: true,
   soundSettingsVersion: 1,

@@ -7,6 +7,7 @@ import { useGameSounds } from './src/audio';
 import { GameBoard } from './src/components/GameBoard';
 import { OnlineMatchScreen } from './src/components/OnlineMatchScreen';
 import { ProfileScreen } from './src/components/ProfileScreen';
+import { RewardedAdOffer, type RewardOffer, type RewardOfferTrigger } from './src/ads/RewardedAdOffer';
 import { PLAYER_COLOR, RIVAL_COLOR, canConnect, createGame, pickRivalMove, playMove } from './src/game/engine';
 import { getLevelLabel } from './src/game/levels';
 import { loadStats, saveStats } from './src/storage';
@@ -25,6 +26,7 @@ const DIFFICULTY_COPY: Record<Difficulty, { title: string; subtitle: string }> =
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home');
   const [stats, setStats] = useState<PlayerStats>(DEFAULT_STATS);
+  const statsRef = useRef<PlayerStats>(DEFAULT_STATS);
   const [ready, setReady] = useState(false);
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [gameConfig, setGameConfig] = useState<{ level: number; isDaily: boolean }>({ level: 1, isDaily: false });
@@ -32,9 +34,11 @@ export default function App() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [account, setAccount] = useState<{ token: string; profile: PlayerProfile } | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [rewardOffer, setRewardOffer] = useState<RewardOffer | null>(null);
 
   useEffect(() => {
     loadStats().then((stored) => {
+      statsRef.current = stored;
       setStats(stored);
       setReady(true);
     });
@@ -59,6 +63,7 @@ export default function App() {
   const updateStats = useCallback((updater: (current: PlayerStats) => PlayerStats) => {
     setStats((current) => {
       const next = updater(current);
+      statsRef.current = next;
       void saveStats(next);
       return next;
     });
@@ -74,30 +79,44 @@ export default function App() {
     setScreen('online');
   }, []);
 
+  const showRewardOffer = useCallback((trigger: RewardOfferTrigger) => {
+    setRewardOffer((current) => current ?? { id: `${trigger}-${Date.now()}`, trigger });
+  }, []);
+
+  const onOnlineMatchCompleted = useCallback(() => {
+    showRewardOffer('online');
+  }, [showRewardOffer]);
+
   const onGameCompleted = useCallback((game: GameState) => {
     const won = game.playerScore > game.rivalScore;
     const tied = game.playerScore === game.rivalScore;
     const today = localDate();
-    updateStats((current) => {
-      const levelStars = won ? (game.playerScore - game.rivalScore >= 2 ? 3 : 2) : tied ? 1 : 0;
-      const completedLevels = won && !game.isDaily && !current.completedLevels.includes(game.level)
-        ? [...current.completedLevels, game.level]
-        : current.completedLevels;
-      const previousStars = current.starsByLevel[String(game.level)] ?? 0;
-      const lastDaily = current.lastDailyDate;
-      const isNewDaily = game.isDaily && lastDaily !== today;
-      const yesterday = localDate(-1);
-      return {
-        ...current,
-        completedLevels,
-        starsByLevel: !game.isDaily ? { ...current.starsByLevel, [String(game.level)]: Math.max(previousStars, levelStars) } : current.starsByLevel,
-        wins: current.wins + (won ? 1 : 0),
-        losses: current.losses + (!won && !tied ? 1 : 0),
-        dailyStreak: isNewDaily ? (lastDaily === yesterday ? current.dailyStreak + 1 : 1) : current.dailyStreak,
-        lastDailyDate: game.isDaily ? today : current.lastDailyDate,
-      };
-    });
-  }, [updateStats]);
+    const current = statsRef.current;
+    const levelStars = won ? (game.playerScore - game.rivalScore >= 2 ? 3 : 2) : tied ? 1 : 0;
+    const completedNewLevel = won && !game.isDaily && !current.completedLevels.includes(game.level);
+    const completedLevels = completedNewLevel ? [...current.completedLevels, game.level] : current.completedLevels;
+    const previousStars = current.starsByLevel[String(game.level)] ?? 0;
+    const lastDaily = current.lastDailyDate;
+    const isNewDaily = game.isDaily && lastDaily !== today;
+    const yesterday = localDate(-1);
+    const levelProgress = completedNewLevel ? current.completedLevelsSinceRewardOffer + 1 : current.completedLevelsSinceRewardOffer;
+    const levelOfferDue = levelProgress >= 2;
+    const dailyOfferDue = isNewDaily && current.lastDailyRewardOfferDate !== today;
+    const next: PlayerStats = {
+      ...current,
+      completedLevels,
+      starsByLevel: !game.isDaily ? { ...current.starsByLevel, [String(game.level)]: Math.max(previousStars, levelStars) } : current.starsByLevel,
+      wins: current.wins + (won ? 1 : 0),
+      losses: current.losses + (!won && !tied ? 1 : 0),
+      dailyStreak: isNewDaily ? (lastDaily === yesterday ? current.dailyStreak + 1 : 1) : current.dailyStreak,
+      lastDailyDate: game.isDaily ? today : current.lastDailyDate,
+      completedLevelsSinceRewardOffer: levelOfferDue ? 0 : levelProgress,
+      lastDailyRewardOfferDate: dailyOfferDue ? today : current.lastDailyRewardOfferDate,
+    };
+    updateStats(() => next);
+    if (levelOfferDue) showRewardOffer('levels');
+    if (dailyOfferDue) showRewardOffer('daily');
+  }, [showRewardOffer, updateStats]);
 
   const onProfileUpdated = useCallback((profile: PlayerProfile) => {
     setAccount((current) => current ? { ...current, profile } : current);
@@ -145,6 +164,7 @@ export default function App() {
               onBack={() => setScreen('home')}
               onPlayAgain={startOnlineMatch}
               onProfileUpdated={onProfileUpdated}
+              onMatchCompleted={onOnlineMatchCompleted}
             />
           ) : account ? (
           <ProfileScreen
@@ -171,8 +191,19 @@ export default function App() {
             onClose={() => setSettingsVisible(false)}
             onToggleHaptics={() => updateStats((current) => ({ ...current, hapticsEnabled: !current.hapticsEnabled }))}
             onToggleSound={() => updateStats((current) => ({ ...current, soundEnabled: !current.soundEnabled }))}
+            onOpenTestAd={() => {
+              setSettingsVisible(false);
+              showRewardOffer('manual');
+            }}
           />
         </SafeAreaView>
+        <RewardedAdOffer
+          offer={rewardOffer}
+          onDismiss={() => setRewardOffer(null)}
+          onRewardEarned={(offer, reward) => {
+            Alert.alert('Test ödülü alındı', `${offer.trigger === 'manual' ? 'Test reklamı' : 'Ödüllü reklam'} tamamlandı: ${reward.amount} ${reward.type}. Gerçek oyun ödülünü sunucu doğrulamasına bağlamadan hesabına eklemeyeceğiz.`);
+          }}
+        />
       </AppErrorBoundary>
     </SafeAreaProvider>
   );
@@ -395,12 +426,13 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
   );
 }
 
-function SettingsModal({ visible, stats, onClose, onToggleHaptics, onToggleSound }: {
+function SettingsModal({ visible, stats, onClose, onToggleHaptics, onToggleSound, onOpenTestAd }: {
   visible: boolean;
   stats: PlayerStats;
   onClose: () => void;
   onToggleHaptics: () => void;
   onToggleSound: () => void;
+  onOpenTestAd: () => void;
 }) {
   return (
     <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
@@ -409,6 +441,7 @@ function SettingsModal({ visible, stats, onClose, onToggleHaptics, onToggleSound
           <View style={styles.settingsHeader}><Text style={styles.settingsTitle}>Ayarlar</Text><IconButton label="Ayarları kapat" symbol="×" onPress={onClose} /></View>
           <SettingRow title="Dokunsal geri bildirim" subtitle="Hamlelerde titreşim" value={stats.hapticsEnabled} onChange={onToggleHaptics} />
           <SettingRow title="Ses efektleri" subtitle="Oyun hamleleri ve sonuçları" value={stats.soundEnabled} onChange={onToggleSound} />
+          {__DEV__ ? <Pressable accessibilityRole="button" accessibilityLabel="Ödüllü test reklamını aç" onPress={onOpenTestAd} style={({ pressed }) => [styles.testAdButton, pressed && styles.pressed]}><Text style={styles.testAdTitle}>Ödüllü test reklamı</Text><Text style={styles.testAdText}>Google test reklamını şimdi kontrol et</Text></Pressable> : null}
           <Text style={styles.settingsFootnote}>Çevrimiçi profilin, avatarın ve maç ilerlemen eşleşme sunucusunda saklanır. Avatarını istediğin zaman değiştirebilirsin.</Text>
         </View>
       </View>
@@ -567,6 +600,9 @@ const styles = StyleSheet.create({
   settingDisabled: { opacity: 0.55 },
   settingTitle: { color: '#E8F0F6', fontSize: 15, fontWeight: '700' },
   settingSubtitle: { color: '#8EA4B7', fontSize: 12, marginTop: 3 },
+  testAdButton: { minHeight: 64, marginTop: 10, borderRadius: 15, paddingHorizontal: 15, justifyContent: 'center', backgroundColor: '#153A57', borderWidth: 1, borderColor: '#2C6E95' },
+  testAdTitle: { color: '#E3F5FF', fontSize: 14, fontWeight: '800' },
+  testAdText: { color: '#9DC9E1', fontSize: 12, marginTop: 3 },
   settingsFootnote: { color: '#7C94A9', fontSize: 12, lineHeight: 17, borderTopWidth: 1, borderColor: '#27435D', paddingTop: 16, marginTop: 1 },
   fatalScreen: { flex: 1, backgroundColor: '#07111F', alignItems: 'center', justifyContent: 'center', padding: 28 },
   fatalTitle: { color: '#F7FBFF', fontSize: 23, fontWeight: '800' },
