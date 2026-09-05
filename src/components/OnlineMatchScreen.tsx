@@ -32,6 +32,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
   const { width } = useWindowDimensions();
   const socketRef = useRef<Socket | null>(null);
   const completeRef = useRef(false);
+  const resultActionRef = useRef(false);
   const colorRef = useRef<MatchColor | null>(null);
   const lastMoveRef = useRef(0);
   const [connection, setConnection] = useState<ConnectionState>('connecting');
@@ -84,6 +85,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
     socket.on('match_complete', (nextResult: OnlineMatchResult) => {
       if (completeRef.current) return;
       completeRef.current = true;
+      resultActionRef.current = false;
       setPendingMove(false);
       setSelectedDotId(null);
       setMatch((current) => current?.roomId === nextResult.roomId ? {
@@ -100,7 +102,6 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
       playSound(outcome === 'win' ? 'victory' : 'defeat');
       haptic(outcome === 'win' ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light);
       setResultVisible(true);
-      onMatchCompleted();
     });
     socket.on('move_rejected', ({ message }: { message: string }) => {
       setPendingMove(false);
@@ -181,6 +182,17 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
     socketRef.current?.emit('start_match', { roomId: match.roomId });
   };
 
+  // The result card must stay interactive. Showing the rewarded-ad modal while
+  // it is open places two native modals on top of each other and traps touches.
+  // Queue the ad only after the player chooses where to continue.
+  const continueAfterResult = useCallback((next: () => void) => {
+    if (resultActionRef.current) return;
+    resultActionRef.current = true;
+    setResultVisible(false);
+    onMatchCompleted();
+    next();
+  }, [onMatchCompleted]);
+
   const title = connection === 'connecting' ? 'Sunucuya bağlanılıyor…'
       : connection === 'waiting' ? 'Rakip aranıyor…'
       : connection === 'matched' ? 'Rakibin bulundu!'
@@ -232,7 +244,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
         </View>
       )}
 
-      <Modal transparent animationType="fade" visible={resultVisible} onRequestClose={() => setResultVisible(false)}>
+      <Modal transparent animationType="fade" visible={resultVisible} onRequestClose={() => continueAfterResult(onBack)}>
         <View style={styles.scrim}>
           <View style={styles.resultCard}>
             <Text style={styles.resultIcon}>{didWin ? '✦' : didDraw ? '≈' : '◌'}</Text>
@@ -247,8 +259,8 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
             {ownReward?.streakBonus ? <Text style={styles.streakBonus}>3 maçlık seri bonusu: +{ownReward.streakBonus} altın</Text> : null}
             {result?.reason === 'forfeit' && didWin ? <Text style={styles.forfeit}>Rakip ayrıldığı için galibiyet senin.</Text> : null}
             <View style={styles.resultActions}>
-              <OnlineButton label="Tekrar oyna" onPress={onPlayAgain} compact />
-              <OnlineButton label="Ana sayfa" onPress={onBack} compact />
+              <OnlineButton label="Tekrar oyna" onPress={() => continueAfterResult(onPlayAgain)} compact />
+              <OnlineButton label="Ana sayfa" onPress={() => continueAfterResult(onBack)} compact />
             </View>
           </View>
         </View>
