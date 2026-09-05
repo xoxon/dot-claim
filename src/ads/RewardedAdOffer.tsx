@@ -17,8 +17,8 @@ const IS_EXPO_GO = Constants.executionEnvironment === 'storeClient';
 
 const OFFER_COPY: Record<RewardOfferTrigger, { eyebrow: string; title: string; detail: string }> = {
   levels: {
-    eyebrow: 'BÖLÜM SERİSİ',
-    title: '2 bölüm tamamlandı!',
+    eyebrow: 'OYUN SERİSİ',
+    title: '2 oyun tamamlandı!',
     detail: 'İstersen ödüllü test reklamını izleyip akışı kontrol edebilirsin.',
   },
   daily: {

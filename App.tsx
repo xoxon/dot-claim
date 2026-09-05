@@ -100,8 +100,13 @@ export default function App() {
     const lastDaily = current.lastDailyDate;
     const isNewDaily = game.isDaily && lastDaily !== today;
     const yesterday = localDate(-1);
-    const levelProgress = completedNewLevel ? current.completedLevelsSinceRewardOffer + 1 : current.completedLevelsSinceRewardOffer;
-    const levelOfferDue = levelProgress >= 2;
+    // A reward opportunity is earned after every two completed regular games.
+    // This deliberately includes retries and losses; level-unlock progress above
+    // remains win-only, but ad cadence must reflect actual games played.
+    const gameProgress = !game.isDaily
+      ? current.completedLevelsSinceRewardOffer + 1
+      : current.completedLevelsSinceRewardOffer;
+    const levelOfferDue = gameProgress >= 2;
     const dailyOfferDue = isNewDaily && current.lastDailyRewardOfferDate !== today;
     const next: PlayerStats = {
       ...current,
@@ -111,7 +116,7 @@ export default function App() {
       losses: current.losses + (!won && !tied ? 1 : 0),
       dailyStreak: isNewDaily ? (lastDaily === yesterday ? current.dailyStreak + 1 : 1) : current.dailyStreak,
       lastDailyDate: game.isDaily ? today : current.lastDailyDate,
-      completedLevelsSinceRewardOffer: levelOfferDue ? 0 : levelProgress,
+      completedLevelsSinceRewardOffer: levelOfferDue ? 0 : gameProgress,
       lastDailyRewardOfferDate: dailyOfferDue ? today : current.lastDailyRewardOfferDate,
     };
     updateStats(() => next);
