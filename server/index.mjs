@@ -435,6 +435,15 @@ function sendHtml(response, status, title, body) {
 </html>`);
 }
 
+function sendAdsTxt(response) {
+  response.writeHead(200, {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': 'public, max-age=86400',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  response.end('google.com, pub-6927228148817615, DIRECT, f08c47fec0942fa0\n');
+}
+
 function supportPage(response) {
   return sendHtml(response, 200, 'Destek', `
     <div class="brand">DOT CLAIM</div>
@@ -574,6 +583,7 @@ async function handleHttp(request, response) {
     return;
   }
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+  if (request.method === 'GET' && (url.pathname === '/app-ads.txt' || url.pathname === '/ads.txt')) return sendAdsTxt(response);
   if (request.method === 'GET' && url.pathname === '/support') return supportPage(response);
   if (request.method === 'GET' && url.pathname === '/privacy') return privacyPage(response);
   if (request.method === 'GET' && url.pathname.startsWith('/uploads/avatars/')) return serveAvatar(request, response, url.pathname);
