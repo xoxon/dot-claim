@@ -24,6 +24,16 @@
         "EXPO_PUBLIC_MATCH_SERVER_URL": "https://match.barkodgenerator.com",
         "EXPO_PUBLIC_ADMOB_USE_TEST_ADS": "true"
       }
+    },
+    "simulator": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_MATCH_SERVER_URL": "https://match.barkodgenerator.com",
+        "EXPO_PUBLIC_ADMOB_USE_TEST_ADS": "true"
+      }
     }
   },
   "submit": {
