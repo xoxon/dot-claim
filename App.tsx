@@ -94,10 +94,6 @@ export default function App() {
     setRewardOffer((current) => current ?? { id: `${trigger}-${Date.now()}`, trigger });
   }, []);
 
-  const onOnlineMatchCompleted = useCallback(() => {
-    showRewardOffer('online');
-  }, [showRewardOffer]);
-
   const onGameCompleted = useCallback((game: GameState) => {
     const won = game.playerScore > game.rivalScore;
     const tied = game.playerScore === game.rivalScore;
@@ -185,7 +181,6 @@ export default function App() {
               onBack={() => setScreen('home')}
               onPlayAgain={() => startOnlineMatch(onlineMode)}
               onProfileUpdated={onProfileUpdated}
-              onMatchCompleted={onOnlineMatchCompleted}
               hideBanner={Boolean(rewardOffer)}
             />
           ) : account ? (

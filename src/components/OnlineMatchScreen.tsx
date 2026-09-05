@@ -5,6 +5,7 @@ import { io, type Socket } from 'socket.io-client';
 
 import { useGameSounds } from '../audio';
 import { GameBannerAd } from '../ads/GameBannerAd';
+import { useOnlineInterstitial } from '../ads/useOnlineInterstitial';
 import { canConnect } from '../game/engine';
 import type { Difficulty, GameState } from '../game/types';
 import { MATCH_SERVER_URL } from '../profile/api';
@@ -17,7 +18,7 @@ const SERVER_URL = MATCH_SERVER_URL;
 
 type ConnectionState = 'connecting' | 'waiting' | 'matched' | 'playing' | 'opponent_left' | 'error';
 
-export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onPlayAgain, onProfileUpdated, onMatchCompleted, hideBanner }: {
+export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onPlayAgain, onProfileUpdated, hideBanner }: {
   mode: OnlineMode;
   difficulty: Difficulty;
   profile: PlayerProfile | null;
@@ -27,7 +28,6 @@ export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabl
   onBack: () => void;
   onPlayAgain: () => void;
   onProfileUpdated: (profile: PlayerProfile) => void;
-  onMatchCompleted: () => void;
   hideBanner: boolean;
 }) {
   const { width } = useWindowDimensions();
@@ -46,6 +46,7 @@ export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabl
   const [result, setResult] = useState<OnlineMatchResult | null>(null);
   const [inspectedProfile, setInspectedProfile] = useState<PlayerProfile | null>(null);
   const playSound = useGameSounds(soundEnabled);
+  const showInterstitialThen = useOnlineInterstitial();
   const boardSize = Math.min(Math.max(width - 32, 260), 500);
 
   const haptic = useCallback((style: Haptics.ImpactFeedbackStyle) => {
@@ -127,7 +128,7 @@ export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabl
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [difficulty, haptic, mode, onMatchCompleted, onProfileUpdated, playSound, profile, token]);
+  }, [difficulty, haptic, mode, onProfileUpdated, playSound, profile, token]);
 
   const localGame = useMemo<GameState | null>(() => {
     if (!match || !color) return null;
@@ -195,16 +196,16 @@ export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabl
     socketRef.current?.emit('roll_dice', { roomId: match.roomId });
   };
 
-  // The result card must stay interactive. Showing the rewarded-ad modal while
-  // it is open places two native modals on top of each other and traps touches.
-  // Queue the ad only after the player chooses where to continue.
+  // A native interstitial sits above this result card. We only move to the next
+  // screen after it has closed, so replay cannot race against an ad modal.
   const continueAfterResult = useCallback((next: () => void) => {
     if (resultActionRef.current) return;
     resultActionRef.current = true;
-    setResultVisible(false);
-    onMatchCompleted();
-    next();
-  }, [onMatchCompleted]);
+    showInterstitialThen(() => {
+      setResultVisible(false);
+      next();
+    });
+  }, [showInterstitialThen]);
 
   const isDiceMatch = match?.mode === 'dice';
   const title = connection === 'connecting' ? 'Sunucuya bağlanılıyor…'
