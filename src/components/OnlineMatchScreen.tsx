@@ -4,6 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { io, type Socket } from 'socket.io-client';
 
 import { useGameSounds } from '../audio';
+import { GameBannerAd } from '../ads/GameBannerAd';
 import { canConnect } from '../game/engine';
 import type { Difficulty, GameState } from '../game/types';
 import { MATCH_SERVER_URL } from '../profile/api';
@@ -16,7 +17,7 @@ const SERVER_URL = MATCH_SERVER_URL;
 
 type ConnectionState = 'connecting' | 'waiting' | 'matched' | 'playing' | 'opponent_left' | 'error';
 
-export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onPlayAgain, onProfileUpdated, onMatchCompleted }: {
+export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onPlayAgain, onProfileUpdated, onMatchCompleted, hideBanner }: {
   difficulty: Difficulty;
   profile: PlayerProfile | null;
   token: string | null;
@@ -26,6 +27,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
   onPlayAgain: () => void;
   onProfileUpdated: (profile: PlayerProfile) => void;
   onMatchCompleted: () => void;
+  hideBanner: boolean;
 }) {
   const { width } = useWindowDimensions();
   const socketRef = useRef<Socket | null>(null);
@@ -219,6 +221,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
           <View style={styles.status}><View style={[styles.statusLight, { backgroundColor: localGame.turn === 'player' ? '#58C7FF' : '#FF6680' }]} /><Text style={styles.statusText}>{title}</Text></View>
           <GameBoard dots={localGame.dots} edges={localGame.edges} triangles={localGame.triangles} selectedDotId={selectedDotId} disabled={localGame.turn !== 'player' || pendingMove || localGame.isComplete || connection !== 'playing'} size={boardSize} onDotPress={onDotPress} />
           <Text style={styles.rule}>Hamleler sunucuda doğrulanır; iki oyuncu da aynı tahtayı anlık görür.</Text>
+          <GameBannerAd hidden={hideBanner || resultVisible || inspectedProfile !== null || connection !== 'playing'} />
         </>
       ) : (
         <View style={styles.waitingCard}>

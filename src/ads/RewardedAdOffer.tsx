@@ -9,7 +9,7 @@ export type RewardOffer = {
   trigger: RewardOfferTrigger;
 };
 
-type GoogleMobileAds = typeof import('react-native-google-mobile-ads');
+export type GoogleMobileAds = typeof import('react-native-google-mobile-ads');
 
 const LIVE_REWARDED_AD_UNIT_ID = 'ca-app-pub-6927228148817615/6183846492';
 export const isUsingTestAds = process.env.EXPO_PUBLIC_ADMOB_USE_TEST_ADS !== 'false';
@@ -38,7 +38,7 @@ const OFFER_COPY: Record<RewardOfferTrigger, { eyebrow: string; title: string; d
   },
 };
 
-function getGoogleMobileAds(): GoogleMobileAds | null {
+export function getGoogleMobileAds(): GoogleMobileAds | null {
   if (IS_EXPO_GO || Platform.OS === 'web') return null;
   try {
     // Expo Go does not include the Google Mobile Ads native module. Requiring it only

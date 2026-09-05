@@ -7,6 +7,7 @@ import { useGameSounds } from './src/audio';
 import { GameBoard } from './src/components/GameBoard';
 import { OnlineMatchScreen } from './src/components/OnlineMatchScreen';
 import { ProfileScreen } from './src/components/ProfileScreen';
+import { GameBannerAd } from './src/ads/GameBannerAd';
 import { isUsingTestAds, RewardedAdOffer, type RewardOffer, type RewardOfferTrigger } from './src/ads/RewardedAdOffer';
 import { PLAYER_COLOR, RIVAL_COLOR, canConnect, createGame, pickRivalMove, playMove } from './src/game/engine';
 import { getLevelLabel } from './src/game/levels';
@@ -152,6 +153,7 @@ export default function App() {
               onBack={() => setScreen('home')}
               onComplete={onGameCompleted}
               onPlayAgain={() => startGame(gameConfig.level, gameConfig.isDaily)}
+              hideBanner={Boolean(rewardOffer)}
             />
           ) : screen === 'online' ? (
             <OnlineMatchScreen
@@ -165,6 +167,7 @@ export default function App() {
               onPlayAgain={startOnlineMatch}
               onProfileUpdated={onProfileUpdated}
               onMatchCompleted={onOnlineMatchCompleted}
+              hideBanner={Boolean(rewardOffer)}
             />
           ) : account ? (
           <ProfileScreen
@@ -308,7 +311,7 @@ function HomeScreen({ stats, profile, difficulty, onDifficultyChange, onStart, o
   );
 }
 
-function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, onComplete, onPlayAgain }: {
+function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, onComplete, onPlayAgain, hideBanner }: {
   config: { level: number; isDaily: boolean };
   difficulty: Difficulty;
   hapticsEnabled: boolean;
@@ -316,6 +319,7 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
   onBack: () => void;
   onComplete: (game: GameState) => void;
   onPlayAgain: () => void;
+  hideBanner: boolean;
 }) {
   const { width } = useWindowDimensions();
   const [game, setGame] = useState(() => createGame(config.level, difficulty, config.isDaily));
@@ -409,6 +413,7 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
       <GameBoard dots={game.dots} edges={game.edges} triangles={game.triangles} selectedDotId={game.selectedDotId} disabled={game.turn !== 'player' || game.isComplete} size={boardSize} onDotPress={onDotPress} />
       <Text style={styles.ruleText}>Bir üçgeni kapatan çizgi, o alanı sahibine yazar. En yüksek puan kazanır.</Text>
       <View style={styles.legendRow}><Legend color={PLAYER_COLOR} label="Senin çizgilerin" /><Legend color={RIVAL_COLOR} label="Rakibin çizgileri" /></View>
+      <GameBannerAd hidden={hideBanner || resultVisible} />
 
       <Modal transparent animationType="fade" visible={resultVisible} onRequestClose={() => setResultVisible(false)}>
         <View style={styles.modalScrim}>
