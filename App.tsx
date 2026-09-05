@@ -417,8 +417,10 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
             <Text style={styles.resultTitle}>{game.playerScore > game.rivalScore ? 'Harika hamle!' : game.playerScore === game.rivalScore ? 'Dengeli oyun!' : 'Rövanş vakti.'}</Text>
             <Text style={styles.resultText}>{status}</Text>
             <View style={styles.finalScore}><Text style={styles.finalScoreValue}>{game.playerScore}</Text><Text style={styles.finalScoreDivider}>:</Text><Text style={styles.finalScoreValue}>{game.rivalScore}</Text></View>
-            <PrimaryButton label="Tekrar oyna" onPress={restart} />
-            <SecondaryButton label="Ana sayfa" onPress={onBack} />
+            <View style={styles.resultActions}>
+              <ResultActionButton label="Tekrar oyna" onPress={restart} />
+              <ResultActionButton label="Ana sayfa" onPress={onBack} />
+            </View>
           </View>
         </View>
       </Modal>
@@ -474,6 +476,10 @@ function PrimaryButton({ label, onPress }: { label: string; onPress: () => void 
 
 function SecondaryButton({ label, onPress }: { label: string; onPress: () => void }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}><Text style={styles.secondaryButtonText}>{label}</Text></Pressable>;
+}
+
+function ResultActionButton({ label, onPress }: { label: string; onPress: () => void }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [styles.resultActionButton, pressed && styles.pressed]}><Text style={styles.resultActionButtonText}>{label}</Text></Pressable>;
 }
 
 function IconButton({ label, symbol, onPress }: { label: string; symbol: string; onPress: () => void }) {
@@ -591,6 +597,9 @@ const styles = StyleSheet.create({
   finalScore: { flexDirection: 'row', alignItems: 'center', gap: 16, marginVertical: 24 },
   finalScoreValue: { color: '#F7FBFF', fontSize: 44, fontWeight: '800' },
   finalScoreDivider: { color: '#547086', fontSize: 35 },
+  resultActions: { width: '100%', flexDirection: 'row', gap: 10 },
+  resultActionButton: { flex: 1, minHeight: 48, borderRadius: 15, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F7FBFF' },
+  resultActionButtonText: { color: '#0B253A', fontSize: 14, fontWeight: '800' },
   secondaryButton: { minHeight: 44, alignSelf: 'center', justifyContent: 'center', paddingHorizontal: 20, marginTop: 12 },
   secondaryButtonText: { color: '#A8C9DE', fontSize: 15, fontWeight: '700' },
   settingsCard: { borderRadius: 28, padding: 22, backgroundColor: '#10263D', borderWidth: 1, borderColor: '#35607E' },

@@ -243,8 +243,10 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
             </View>}
             {ownReward?.streakBonus ? <Text style={styles.streakBonus}>3 maçlık seri bonusu: +{ownReward.streakBonus} altın</Text> : null}
             {result?.reason === 'forfeit' && didWin ? <Text style={styles.forfeit}>Rakip ayrıldığı için galibiyet senin.</Text> : null}
-            <OnlineButton label="Tekrar oyna" onPress={onPlayAgain} />
-            <OnlineButton label="Ana sayfa" onPress={onBack} />
+            <View style={styles.resultActions}>
+              <OnlineButton label="Tekrar oyna" onPress={onPlayAgain} compact />
+              <OnlineButton label="Ana sayfa" onPress={onBack} compact />
+            </View>
           </View>
         </View>
       </Modal>
@@ -337,8 +339,8 @@ function Reward({ label, value, symbol, color }: { label: string; value: number;
   return <View style={styles.reward}><Text style={[styles.rewardValue, { color }]}>{symbol} {value > 0 ? '+' : ''}{value}</Text><Text style={styles.rewardLabel}>{label}</Text></View>;
 }
 
-function OnlineButton({ label, onPress, disabled = false }: { label: string; onPress: () => void; disabled?: boolean }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[styles.button, disabled && styles.buttonDisabled]}><Text style={styles.buttonText}>{label}</Text></Pressable>;
+function OnlineButton({ label, onPress, disabled = false, compact = false }: { label: string; onPress: () => void; disabled?: boolean; compact?: boolean }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[styles.button, compact && styles.compactButton, disabled && styles.buttonDisabled]}><Text style={styles.buttonText}>{label}</Text></Pressable>;
 }
 
 const styles = StyleSheet.create({
@@ -419,6 +421,8 @@ const styles = StyleSheet.create({
   resultTitle: { color: '#F7FBFF', fontSize: 24, fontWeight: '800', marginTop: 8 },
   resultOpponent: { color: '#ACC1D1', fontSize: 14, marginTop: 6, textAlign: 'center' },
   resultScore: { color: '#F7FBFF', fontSize: 42, fontWeight: '800', marginTop: 16 },
+  resultActions: { width: '100%', flexDirection: 'row', gap: 10, marginTop: 22 },
+  compactButton: { flex: 1, marginTop: 0, paddingHorizontal: 10 },
   rewards: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginTop: 18 },
   reward: { flex: 1, minHeight: 58, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0B1C2E', borderWidth: 1, borderColor: '#24435C' },
   rewardValue: { fontSize: 15, fontWeight: '900' },
