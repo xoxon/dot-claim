@@ -15,6 +15,7 @@ import { loadStats, saveStats } from './src/storage';
 import { DEFAULT_STATS, type Difficulty, type GameState, type PlayerStats } from './src/game/types';
 import { loadAuthenticatedProfile } from './src/profile/api';
 import type { PlayerProfile } from './src/profile/types';
+import type { OnlineMode } from './src/online/types';
 
 type Screen = 'home' | 'game' | 'online' | 'profile';
 
@@ -32,6 +33,7 @@ export default function App() {
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [gameConfig, setGameConfig] = useState<{ level: number; isDaily: boolean }>({ level: 1, isDaily: false });
   const [onlineSession, setOnlineSession] = useState(0);
+  const [onlineMode, setOnlineMode] = useState<OnlineMode>('classic');
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [account, setAccount] = useState<{ token: string; profile: PlayerProfile } | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -82,7 +84,8 @@ export default function App() {
     setScreen('game');
   }, []);
 
-  const startOnlineMatch = useCallback(() => {
+  const startOnlineMatch = useCallback((mode: OnlineMode = 'classic') => {
+    setOnlineMode(mode);
     setOnlineSession((current) => current + 1);
     setScreen('online');
   }, []);
@@ -173,13 +176,14 @@ export default function App() {
           ) : screen === 'online' ? (
             <OnlineMatchScreen
               key={onlineSession}
+              mode={onlineMode}
               difficulty={difficulty}
               profile={account?.profile ?? null}
               token={account?.token ?? null}
               hapticsEnabled={stats.hapticsEnabled}
               soundEnabled={stats.soundEnabled}
               onBack={() => setScreen('home')}
-              onPlayAgain={startOnlineMatch}
+              onPlayAgain={() => startOnlineMatch(onlineMode)}
               onProfileUpdated={onProfileUpdated}
               onMatchCompleted={onOnlineMatchCompleted}
               hideBanner={Boolean(rewardOffer)}
@@ -233,7 +237,7 @@ function HomeScreen({ stats, profile, difficulty, onDifficultyChange, onStart, o
   difficulty: Difficulty;
   onDifficultyChange: (difficulty: Difficulty) => void;
   onStart: (level: number, isDaily?: boolean) => void;
-  onStartOnline: () => void;
+  onStartOnline: (mode: OnlineMode) => void;
   onOpenProfile: () => void;
   onOpenSettings: () => void;
 }) {
@@ -289,13 +293,22 @@ function HomeScreen({ stats, profile, difficulty, onDifficultyChange, onStart, o
         <Text style={styles.chevron}>›</Text>
       </Pressable>
 
-      <Pressable accessibilityRole="button" accessibilityLabel="Çevrimiçi rakip ara" onPress={onStartOnline} style={styles.onlineCard}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Klasik çevrimiçi rakip ara" onPress={() => onStartOnline('classic')} style={styles.onlineCard}>
         <View style={styles.onlineIcon}><Text style={styles.onlineIconText}>⌁</Text></View>
         <View style={styles.grow}>
-          <Text style={styles.dailyTitle}>Çevrimiçi rakip ara</Text>
-          <Text style={styles.dailySubtitle}>Gerçek bir oyuncuyla canlı eşleş.</Text>
+          <Text style={styles.dailyTitle}>Klasik çevrimiçi</Text>
+          <Text style={styles.dailySubtitle}>Her çizgide sıra değişen canlı düello.</Text>
         </View>
         <View style={styles.onlinePill}><Text style={styles.onlinePillText}>CANLI</Text></View>
+      </Pressable>
+
+      <Pressable accessibilityRole="button" accessibilityLabel="Zarlı düelloda rakip ara" onPress={() => onStartOnline('dice')} style={styles.diceOnlineCard}>
+        <View style={styles.diceOnlineIcon}><Text style={styles.diceOnlineIconText}>⚄</Text></View>
+        <View style={styles.grow}>
+          <Text style={styles.dailyTitle}>Zarlı düello</Text>
+          <Text style={styles.diceOnlineSubtitle}>Zarı at; gelen sayı kadar çizgi çiz.</Text>
+        </View>
+        <View style={styles.diceOnlinePill}><Text style={styles.diceOnlinePillText}>YENİ</Text></View>
       </Pressable>
 
       <View style={styles.sectionHeader}>
@@ -575,6 +588,12 @@ const styles = StyleSheet.create({
   onlineIconText: { color: '#05221E', fontSize: 25, fontWeight: '800' },
   onlinePill: { borderRadius: 10, backgroundColor: '#1B695B', paddingHorizontal: 8, paddingVertical: 5 },
   onlinePillText: { color: '#BFF5E8', fontSize: 9, letterSpacing: 0.8, fontWeight: '800' },
+  diceOnlineCard: { minHeight: 76, borderRadius: 20, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 13, backgroundColor: '#2A234B', borderWidth: 1, borderColor: '#6550AF' },
+  diceOnlineIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: '#D9CBFF', alignItems: 'center', justifyContent: 'center' },
+  diceOnlineIconText: { color: '#2D2160', fontSize: 28, fontWeight: '900', marginTop: -2 },
+  diceOnlineSubtitle: { color: '#D3C8F5', fontSize: 12, marginTop: 3 },
+  diceOnlinePill: { borderRadius: 10, backgroundColor: '#50418E', paddingHorizontal: 8, paddingVertical: 5 },
+  diceOnlinePillText: { color: '#EEE9FF', fontSize: 9, letterSpacing: 0.8, fontWeight: '900' },
   chevron: { color: '#E4D9FF', fontSize: 32, fontWeight: '300' },
   sectionHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
   sectionHint: { color: '#8296AA', fontSize: 11 },

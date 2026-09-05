@@ -225,7 +225,7 @@ function HistoryRow({ match }: { match: MatchHistoryItem }) {
   const label = won ? 'Kazandın' : match.outcome === 'draw' ? 'Berabere' : 'Kaybettin';
   return <View style={styles.historyRow}>
     <Avatar profile={match.opponent} size={36} />
-    <View style={styles.rowGrow}><Text numberOfLines={1} style={styles.rowName}>{match.opponent.displayName}</Text><Text style={styles.historyMeta}>{match.score.you} : {match.score.opponent} · {match.reason === 'forfeit' ? 'Rakip ayrıldı' : 'Tamamlandı'}</Text></View>
+    <View style={styles.rowGrow}><Text numberOfLines={1} style={styles.rowName}>{match.opponent.displayName}</Text><Text style={styles.historyMeta}>{match.mode === 'dice' ? 'Zarlı' : 'Klasik'} · {match.score.you} : {match.score.opponent} · {match.reason === 'forfeit' ? 'Rakip ayrıldı' : 'Tamamlandı'}</Text></View>
     <View style={styles.historyResult}><Text style={[styles.outcome, { color }]}>{label}</Text><Text style={styles.historyReward}>{match.rewards ? `🏆 ${match.rewards.trophyDelta > 0 ? '+' : ''}${match.rewards.trophyDelta}` : '—'}</Text></View>
   </View>;
 }

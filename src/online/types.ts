@@ -2,6 +2,7 @@ import type { Difficulty, Dot } from '../game/types';
 import type { MatchReward, PlayerProfile } from '../profile/types';
 
 export type MatchColor = 'blue' | 'red';
+export type OnlineMode = 'classic' | 'dice';
 
 export type OnlineEdge = {
   id: string;
@@ -18,12 +19,15 @@ export type OnlineTriangle = {
 
 export type OnlineMatchState = {
   roomId: string;
+  mode: OnlineMode;
   difficulty: Difficulty;
   dots: Dot[];
   edges: OnlineEdge[];
   triangles: OnlineTriangle[];
   scores: Record<MatchColor, number>;
   turn: MatchColor;
+  diceValue: number | null;
+  movesRemaining: number;
   moveNumber: number;
   maxMoves: number;
   started: boolean;
@@ -34,6 +38,7 @@ export type OnlineMatchState = {
 
 export type OnlineMatchResult = {
   roomId: string;
+  mode: OnlineMode;
   scores: Record<MatchColor, number>;
   winner: MatchColor | 'draw';
   reason: 'completed' | 'forfeit';

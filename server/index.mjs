@@ -53,6 +53,7 @@ database.exec(`
   );
   CREATE TABLE IF NOT EXISTS matches (
     id TEXT PRIMARY KEY,
+    mode TEXT NOT NULL DEFAULT 'classic',
     difficulty TEXT NOT NULL,
     blue_user_id TEXT NOT NULL REFERENCES users(id),
     red_user_id TEXT NOT NULL REFERENCES users(id),
@@ -73,6 +74,11 @@ const userColumns = database.prepare('PRAGMA table_info(users)').all();
 if (!userColumns.some((column) => column.name === 'display_name_locked')) {
   database.exec('ALTER TABLE users ADD COLUMN display_name_locked INTEGER NOT NULL DEFAULT 0');
   database.prepare("UPDATE users SET display_name_locked = 1 WHERE display_name NOT GLOB 'Oyuncu [0-9][0-9][0-9][0-9]'").run();
+}
+
+const matchColumns = database.prepare('PRAGMA table_info(matches)').all();
+if (!matchColumns.some((column) => column.name === 'mode')) {
+  database.exec("ALTER TABLE matches ADD COLUMN mode TEXT NOT NULL DEFAULT 'classic'");
 }
 
 const waiting = new Map();
@@ -182,20 +188,23 @@ function makeDots(seed) {
   return layout.map(([x, y], index) => ({ id: `dot-${index}`, x, y, color: DOT_COLORS[(index + seed) % DOT_COLORS.length] }));
 }
 
-function createMatch(difficulty, blueSocket, redSocket) {
+function createMatch(difficulty, mode, blueSocket, redSocket) {
   const seed = Math.floor(Math.random() * 1_000_000);
   const blueUser = getUserById(blueSocket.data.userId);
   const redUser = getUserById(redSocket.data.userId);
   return {
     id: randomUUID(),
+    mode,
     difficulty,
     dots: makeDots(seed),
     edges: [],
     triangles: [],
     scores: { blue: 0, red: 0 },
     turn: 'blue',
+    diceValue: null,
+    movesRemaining: 0,
     moveNumber: 0,
-    maxMoves: difficulty === 'easy' ? 16 : difficulty === 'hard' ? 12 : 14,
+    maxMoves: mode === 'dice' ? 24 : difficulty === 'easy' ? 16 : difficulty === 'hard' ? 12 : 14,
     started: false,
     ready: { blue: false, red: false },
     isComplete: false,
@@ -256,18 +265,32 @@ function makeMove(state, a, b, owner) {
   state.scores[owner] += claimed.length;
   state.moveNumber += 1;
   state.isComplete = state.moveNumber >= state.maxMoves || legalMoveCount(state) === 0;
-  if (!state.isComplete) state.turn = owner === 'blue' ? 'red' : 'blue';
+  if (state.isComplete) return;
+
+  if (state.mode === 'dice') {
+    state.movesRemaining = Math.max(0, state.movesRemaining - 1);
+    if (state.movesRemaining === 0) {
+      state.turn = owner === 'blue' ? 'red' : 'blue';
+      state.diceValue = null;
+    }
+    return;
+  }
+
+  state.turn = owner === 'blue' ? 'red' : 'blue';
 }
 
 function publicState(room) {
   return {
     roomId: room.id,
+    mode: room.mode,
     difficulty: room.difficulty,
     dots: room.dots,
     edges: room.edges,
     triangles: room.triangles,
     scores: room.scores,
     turn: room.turn,
+    diceValue: room.diceValue,
+    movesRemaining: room.movesRemaining,
     moveNumber: room.moveNumber,
     maxMoves: room.maxMoves,
     started: room.started,
@@ -335,9 +358,9 @@ function persistMatchResult(room, winner, reason) {
     const redProgress = applyProgress(red, redOutcome);
     const rewards = { blue: blueProgress.reward, red: redProgress.reward };
     database.prepare(`
-      INSERT INTO matches (id, difficulty, blue_user_id, red_user_id, blue_score, red_score, winner, reason, rewards_json, started_at, ended_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(room.id, room.difficulty, blue.id, red.id, room.scores.blue, room.scores.red, winner, reason, JSON.stringify(rewards), room.startedAt, now());
+      INSERT INTO matches (id, mode, difficulty, blue_user_id, red_user_id, blue_score, red_score, winner, reason, rewards_json, started_at, ended_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(room.id, room.mode, room.difficulty, blue.id, red.id, room.scores.blue, room.scores.red, winner, reason, JSON.stringify(rewards), room.startedAt, now());
     database.exec('COMMIT');
     return { rewards, profiles: { blue: publicUser(blueProgress.profile), red: publicUser(redProgress.profile) } };
   } catch (error) {
@@ -374,6 +397,7 @@ function finishRoom(room, { reason = 'completed', winnerOverride = null } = {}) 
   }
   io.to(room.id).emit('match_complete', {
     roomId: room.id,
+    mode: room.mode,
     scores: room.scores,
     winner,
     reason,
@@ -564,6 +588,7 @@ function historyFor(userId, limit) {
     const rewards = JSON.parse(row.rewards_json)[isBlue ? 'blue' : 'red'];
     return {
       id: row.id,
+      mode: row.mode ?? 'classic',
       difficulty: row.difficulty,
       score: { you: isBlue ? row.blue_score : row.red_score, opponent: isBlue ? row.red_score : row.blue_score },
       outcome,
@@ -703,20 +728,22 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  socket.on('find_match', ({ difficulty } = {}) => {
+  socket.on('find_match', ({ difficulty, mode } = {}) => {
     const selectedDifficulty = ['easy', 'normal', 'hard'].includes(difficulty) ? difficulty : 'normal';
+    const selectedMode = mode === 'dice' ? 'dice' : 'classic';
+    const queueKey = `${selectedMode}:${selectedDifficulty}`;
     leaveWaiting(socket.id);
-    const queue = waiting.get(selectedDifficulty) ?? [];
+    const queue = waiting.get(queueKey) ?? [];
     const opponentId = queue.find((id) => id !== socket.id && io.sockets.sockets.has(id));
     if (!opponentId) {
-      waiting.set(selectedDifficulty, [...queue, socket.id]);
-      socket.emit('queue_status', { state: 'waiting', difficulty: selectedDifficulty });
+      waiting.set(queueKey, [...queue, socket.id]);
+      socket.emit('queue_status', { state: 'waiting', difficulty: selectedDifficulty, mode: selectedMode });
       return;
     }
-    waiting.set(selectedDifficulty, queue.filter((id) => id !== opponentId));
+    waiting.set(queueKey, queue.filter((id) => id !== opponentId));
     const opponent = io.sockets.sockets.get(opponentId);
-    if (!opponent) return socket.emit('queue_status', { state: 'waiting', difficulty: selectedDifficulty });
-    const room = createMatch(selectedDifficulty, opponent, socket);
+    if (!opponent) return socket.emit('queue_status', { state: 'waiting', difficulty: selectedDifficulty, mode: selectedMode });
+    const room = createMatch(selectedDifficulty, selectedMode, opponent, socket);
     rooms.set(room.id, room);
     socketRoom.set(opponentId, room.id);
     socketRoom.set(socket.id, room.id);
@@ -737,7 +764,20 @@ io.on('connection', (socket) => {
     io.to(room.id).emit('match_ready', { roomId: room.id, ready: room.ready });
     if (!room.ready.blue || !room.ready.red) return;
     room.started = true;
+    if (room.mode === 'dice') room.turn = Math.random() < 0.5 ? 'blue' : 'red';
     io.to(room.id).emit('game_started', { state: publicState(room) });
+  });
+
+  socket.on('roll_dice', ({ roomId } = {}) => {
+    const room = rooms.get(roomId);
+    const role = room ? roleFor(room, socket.id) : null;
+    if (!room || !role || socketRoom.get(socket.id) !== roomId || room.finalized) return socket.emit('move_rejected', { message: 'Eşleşme bulunamadı. Lütfen yeniden eşleşin.' });
+    if (!room.started || room.mode !== 'dice') return socket.emit('move_rejected', { message: 'Bu maçta zar kullanılmıyor.' });
+    if (room.turn !== role) return socket.emit('move_rejected', { message: 'Şimdi rakibinizin sırası.' });
+    if (room.diceValue !== null || room.movesRemaining > 0) return socket.emit('move_rejected', { message: 'Bu tur için zar zaten atıldı.' });
+    room.diceValue = Math.floor(Math.random() * 6) + 1;
+    room.movesRemaining = room.diceValue;
+    io.to(room.id).emit('game_state', publicState(room));
   });
 
   socket.on('play_move', ({ roomId, a, b } = {}) => {
@@ -746,6 +786,7 @@ io.on('connection', (socket) => {
     if (!room || !role || socketRoom.get(socket.id) !== roomId || room.finalized) return socket.emit('move_rejected', { message: 'Eşleşme bulunamadı. Lütfen yeniden eşleşin.' });
     if (!room.started) return socket.emit('move_rejected', { message: 'Her iki oyuncu da Oyuna başla düğmesine dokunmalı.' });
     if (room.turn !== role) return socket.emit('move_rejected', { message: 'Şimdi rakibinizin sırası.' });
+    if (room.mode === 'dice' && (room.diceValue === null || room.movesRemaining <= 0)) return socket.emit('move_rejected', { message: 'Önce zar atmalısın.' });
     if (!canConnect(room, a, b)) return socket.emit('move_rejected', { message: 'Bu bağlantı kullanılamaz.' });
     makeMove(room, a, b, role);
     io.to(room.id).emit('game_state', publicState(room));

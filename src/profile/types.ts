@@ -36,6 +36,7 @@ export type LeaderboardEntry = PlayerProfile & {
 
 export type MatchHistoryItem = {
   id: string;
+  mode: 'classic' | 'dice';
   difficulty: 'easy' | 'normal' | 'hard';
   score: { you: number; opponent: number };
   outcome: 'win' | 'loss' | 'draw';

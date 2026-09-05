@@ -9,7 +9,7 @@ import { canConnect } from '../game/engine';
 import type { Difficulty, GameState } from '../game/types';
 import { MATCH_SERVER_URL } from '../profile/api';
 import type { PlayerProfile } from '../profile/types';
-import type { MatchColor, OnlineMatchResult, OnlineMatchState } from '../online/types';
+import type { MatchColor, OnlineMatchResult, OnlineMatchState, OnlineMode } from '../online/types';
 import { GameBoard } from './GameBoard';
 import { Avatar } from './ProfileScreen';
 
@@ -17,7 +17,8 @@ const SERVER_URL = MATCH_SERVER_URL;
 
 type ConnectionState = 'connecting' | 'waiting' | 'matched' | 'playing' | 'opponent_left' | 'error';
 
-export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onPlayAgain, onProfileUpdated, onMatchCompleted, hideBanner }: {
+export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onPlayAgain, onProfileUpdated, onMatchCompleted, hideBanner }: {
+  mode: OnlineMode;
   difficulty: Difficulty;
   profile: PlayerProfile | null;
   token: string | null;
@@ -40,6 +41,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
   const [color, setColor] = useState<MatchColor | null>(null);
   const [selectedDotId, setSelectedDotId] = useState<string | null>(null);
   const [pendingMove, setPendingMove] = useState(false);
+  const [rollingDice, setRollingDice] = useState(false);
   const [resultVisible, setResultVisible] = useState(false);
   const [result, setResult] = useState<OnlineMatchResult | null>(null);
   const [inspectedProfile, setInspectedProfile] = useState<PlayerProfile | null>(null);
@@ -59,7 +61,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
     socketRef.current = socket;
     socket.on('connect', () => {
       setConnection('waiting');
-      socket.emit('find_match', { difficulty });
+      socket.emit('find_match', { difficulty, mode });
     });
     socket.on('queue_status', () => setConnection('waiting'));
     socket.on('match_found', ({ color: assignedColor, state }: { color: MatchColor; state: OnlineMatchState }) => {
@@ -79,6 +81,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
     });
     socket.on('game_state', (state: OnlineMatchState) => {
       setPendingMove(false);
+      setRollingDice(false);
       setSelectedDotId(null);
       setMatch(state);
     });
@@ -87,6 +90,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
       completeRef.current = true;
       resultActionRef.current = false;
       setPendingMove(false);
+      setRollingDice(false);
       setSelectedDotId(null);
       setMatch((current) => current?.roomId === nextResult.roomId ? {
         ...current,
@@ -105,6 +109,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
     });
     socket.on('move_rejected', ({ message }: { message: string }) => {
       setPendingMove(false);
+      setRollingDice(false);
       haptic(Haptics.ImpactFeedbackStyle.Rigid);
       playSound('invalid');
       Alert.alert('Hamle kabul edilmedi', message);
@@ -122,7 +127,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [difficulty, haptic, onMatchCompleted, onProfileUpdated, playSound, profile, token]);
+  }, [difficulty, haptic, mode, onMatchCompleted, onProfileUpdated, playSound, profile, token]);
 
   const localGame = useMemo<GameState | null>(() => {
     if (!match || !color) return null;
@@ -154,7 +159,8 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
   }, [color, localGame, playSound]);
 
   const onDotPress = (id: string) => {
-    if (!localGame || !match || !color || connection !== 'playing' || localGame.turn !== 'player' || pendingMove || localGame.isComplete) return;
+    const diceTurnReady = match?.mode !== 'dice' || (match.diceValue !== null && match.movesRemaining > 0);
+    if (!localGame || !match || !color || connection !== 'playing' || localGame.turn !== 'player' || pendingMove || localGame.isComplete || !diceTurnReady) return;
     if (!selectedDotId) {
       setSelectedDotId(id);
       haptic(Haptics.ImpactFeedbackStyle.Light);
@@ -182,6 +188,13 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
     socketRef.current?.emit('start_match', { roomId: match.roomId });
   };
 
+  const rollDice = () => {
+    if (!match || !color || match.mode !== 'dice' || connection !== 'playing' || match.turn !== color || match.diceValue !== null || match.movesRemaining > 0 || rollingDice) return;
+    setRollingDice(true);
+    haptic(Haptics.ImpactFeedbackStyle.Medium);
+    socketRef.current?.emit('roll_dice', { roomId: match.roomId });
+  };
+
   // The result card must stay interactive. Showing the rewarded-ad modal while
   // it is open places two native modals on top of each other and traps touches.
   // Queue the ad only after the player chooses where to continue.
@@ -193,12 +206,16 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
     next();
   }, [onMatchCompleted]);
 
+  const isDiceMatch = match?.mode === 'dice';
   const title = connection === 'connecting' ? 'Sunucuya bağlanılıyor…'
       : connection === 'waiting' ? 'Rakip aranıyor…'
       : connection === 'matched' ? 'Rakibin bulundu!'
       : connection === 'opponent_left' ? 'Rakip ayrıldı.'
         : connection === 'error' ? 'Bağlantı kurulamadı.'
           : localGame?.isComplete ? 'Eşleşme tamamlandı.'
+            : isDiceMatch && localGame ? localGame.turn === 'player'
+              ? match?.diceValue === null ? (rollingDice ? 'Zar atılıyor…' : 'Sıran. Önce zarı at.') : `Zarın ${match.diceValue}. ${match.movesRemaining} çizgi hakkın kaldı.`
+              : match?.diceValue === null ? 'Rakibin zar atması bekleniyor…' : `Rakibin zarı ${match.diceValue}. ${match.movesRemaining} çizgi hakkı var.`
             : localGame?.turn === 'player' ? (selectedDotId ? 'İkinci noktayı seç.' : 'Senin sıran.') : 'Rakibin hamlesi bekleniyor…';
 
   const player = color && match ? match.players[color] : profile;
@@ -217,7 +234,7 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
     <View style={styles.screen}>
       <View style={styles.topRow}>
         <OnlineIconButton label="Çevrimiçi eşleşmeden çık" symbol="‹" onPress={onBack} />
-        <View><Text style={styles.kicker}>ÇEVRİMİÇİ EŞLEŞME</Text><Text style={styles.subtitle}>{difficulty === 'easy' ? 'Rahat' : difficulty === 'hard' ? 'Usta' : 'Dengeli'}</Text></View>
+        <View><Text style={styles.kicker}>{mode === 'dice' ? 'ZARLI DÜELLO' : 'ÇEVRİMİÇİ EŞLEŞME'}</Text><Text style={styles.subtitle}>{difficulty === 'easy' ? 'Rahat' : difficulty === 'hard' ? 'Usta' : 'Dengeli'}</Text></View>
         <View style={[styles.connection, { backgroundColor: connection === 'playing' ? '#38D5AA' : connection === 'error' || connection === 'opponent_left' ? '#FF6680' : '#FFC857' }]} />
       </View>
 
@@ -231,7 +248,8 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
             <OnlineScore label="RAKİP" name={opponent?.displayName ?? 'Rakip'} profile={opponent} score={localGame.rivalScore} color="#FF6680" active={localGame.turn === 'rival' && !localGame.isComplete} onInspectProfile={setInspectedProfile} />
           </View>
           <View style={styles.status}><View style={[styles.statusLight, { backgroundColor: localGame.turn === 'player' ? '#58C7FF' : '#FF6680' }]} /><Text style={styles.statusText}>{title}</Text></View>
-          <GameBoard dots={localGame.dots} edges={localGame.edges} triangles={localGame.triangles} selectedDotId={selectedDotId} disabled={localGame.turn !== 'player' || pendingMove || localGame.isComplete || connection !== 'playing'} size={boardSize} onDotPress={onDotPress} />
+          {isDiceMatch ? <DiceTurnCard diceValue={match.diceValue} movesRemaining={match.movesRemaining} isYourTurn={match.turn === color} rolling={rollingDice} onRoll={rollDice} /> : null}
+          <GameBoard dots={localGame.dots} edges={localGame.edges} triangles={localGame.triangles} selectedDotId={selectedDotId} disabled={localGame.turn !== 'player' || pendingMove || localGame.isComplete || connection !== 'playing' || (isDiceMatch && (match.diceValue === null || match.movesRemaining <= 0))} size={boardSize} onDotPress={onDotPress} />
           <Text style={styles.rule}>Hamleler sunucuda doğrulanır; iki oyuncu da aynı tahtayı anlık görür.</Text>
           <GameBannerAd hidden={hideBanner || resultVisible || inspectedProfile !== null || connection !== 'playing'} />
         </>
@@ -271,6 +289,22 @@ export function OnlineMatchScreen({ difficulty, profile, token, soundEnabled, ha
   );
 }
 
+function DiceTurnCard({ diceValue, movesRemaining, isYourTurn, rolling, onRoll }: { diceValue: number | null; movesRemaining: number; isYourTurn: boolean; rolling: boolean; onRoll: () => void }) {
+  const canRoll = isYourTurn && diceValue === null && !rolling;
+  const label = diceValue === null
+    ? isYourTurn ? (rolling ? 'Zar atılıyor…' : 'Bu tur için zarı at') : 'Rakibin zar atmasını bekle'
+    : isYourTurn ? `${movesRemaining} çizgi hakkın kaldı` : `Rakibin ${movesRemaining} çizgi hakkı kaldı`;
+  return <View style={[styles.diceTurnCard, isYourTurn && styles.diceTurnCardActive]}>
+    <View style={styles.diceFace}><Text style={styles.diceFaceText}>{diceValue ? diceFace(diceValue) : '⚄'}</Text></View>
+    <View style={styles.diceCopy}><Text style={styles.diceKicker}>{diceValue ? `ZAR ${diceValue}` : 'ZAR TURU'}</Text><Text style={styles.diceText}>{label}</Text></View>
+    {canRoll ? <Pressable accessibilityRole="button" accessibilityLabel="Zarı at" onPress={onRoll} style={({ pressed }) => [styles.rollButton, pressed && styles.pressed]}><Text style={styles.rollButtonText}>Zarı at</Text></Pressable> : null}
+  </View>;
+}
+
+function diceFace(value: number) {
+  return ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'][value - 1] ?? '⚄';
+}
+
 function MatchLobby({ match, color, onStart, onInspectProfile }: { match: OnlineMatchState; color: MatchColor; onStart: () => void; onInspectProfile: (profile: PlayerProfile) => void }) {
   const opponentColor: MatchColor = color === 'blue' ? 'red' : 'blue';
   const youReady = match.ready[color];
@@ -278,7 +312,7 @@ function MatchLobby({ match, color, onStart, onInspectProfile }: { match: Online
   return <View style={styles.lobbyCard}>
     <Text style={styles.lobbyEyebrow}>EŞLEŞME BULUNDU</Text>
     <Text style={styles.lobbyTitle}>Hazır mısınız?</Text>
-    <Text style={styles.lobbyText}>Tahta, iki oyuncu da oyuna hazır olduğunda açılır.</Text>
+    <Text style={styles.lobbyText}>{match.mode === 'dice' ? 'Her tur zarı atıp gelen sayı kadar çizgi çizeceksiniz.' : 'Tahta, iki oyuncu da oyuna hazır olduğunda açılır.'}</Text>
     <View style={styles.lobbyPlayers}>
       <LobbyPlayer label="SEN" profile={match.players[color]} ready={youReady} color="#58C7FF" onInspectProfile={onInspectProfile} />
       <Text style={styles.vs}>VS</Text>
@@ -380,6 +414,15 @@ const styles = StyleSheet.create({
   status: { minHeight: 44, paddingHorizontal: 15, borderRadius: 14, backgroundColor: '#0B1C2E', borderWidth: 1, borderColor: '#1B354E', flexDirection: 'row', alignItems: 'center', gap: 9 },
   statusLight: { width: 8, height: 8, borderRadius: 4 },
   statusText: { color: '#D8E5EF', fontSize: 13, fontWeight: '600', flex: 1 },
+  diceTurnCard: { minHeight: 68, padding: 10, borderRadius: 17, backgroundColor: '#171D3D', borderWidth: 1, borderColor: '#383D78', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  diceTurnCardActive: { backgroundColor: '#24204C', borderColor: '#7666CD' },
+  diceFace: { width: 44, height: 44, borderRadius: 13, backgroundColor: '#E8E2FF', alignItems: 'center', justifyContent: 'center' },
+  diceFaceText: { color: '#322369', fontSize: 29, lineHeight: 33 },
+  diceCopy: { flex: 1, minWidth: 0 },
+  diceKicker: { color: '#BBAFFF', fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  diceText: { color: '#E9E8F8', fontSize: 12, fontWeight: '700', marginTop: 3 },
+  rollButton: { minHeight: 38, borderRadius: 12, paddingHorizontal: 13, backgroundColor: '#E7E1FF', alignItems: 'center', justifyContent: 'center' },
+  rollButtonText: { color: '#35256F', fontSize: 12, fontWeight: '900' },
   rule: { color: '#9AB0C2', fontSize: 13, lineHeight: 19, textAlign: 'center', paddingHorizontal: 18 },
   waitingCard: { flex: 1, maxHeight: 320, justifyContent: 'center', alignItems: 'center', padding: 28, borderRadius: 28, backgroundColor: '#0E2035', borderWidth: 1, borderColor: '#1B354E', marginTop: 80 },
   waitingSymbol: { color: '#58C7FF', fontSize: 42, fontWeight: '800' },
@@ -406,6 +449,7 @@ const styles = StyleSheet.create({
   button: { marginTop: 22, minHeight: 48, borderRadius: 15, paddingHorizontal: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F7FBFF' },
   buttonText: { color: '#0B253A', fontSize: 16, fontWeight: '800' },
   buttonDisabled: { backgroundColor: '#71879B' },
+  pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
   scrim: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.76)', padding: 24, justifyContent: 'center' },
   profileScrim: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.82)', padding: 20, justifyContent: 'center' },
   profileModal: { maxWidth: 460, alignSelf: 'center', width: '100%', borderRadius: 28, padding: 22, backgroundColor: '#10263D', borderWidth: 1, borderColor: '#35607E', alignItems: 'center' },
