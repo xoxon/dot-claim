@@ -24,7 +24,7 @@ const OFFER_COPY: Record<RewardOfferTrigger, { eyebrow: string; title: string; d
   daily: {
     eyebrow: 'GÜNLÜK MEYDAN OKUMA',
     title: 'Günlük sonuç hazır',
-    detail: 'Bugünkü tek ödüllü reklam hakkın hazır.',
+    detail: 'İstersen bu tamamlanan oyun için ödüllü test reklamını izleyebilirsin.',
   },
   online: {
     eyebrow: 'ÇEVRİMİÇİ MAÇ',

@@ -107,7 +107,10 @@ export default function App() {
       ? current.completedLevelsSinceRewardOffer + 1
       : current.completedLevelsSinceRewardOffer;
     const levelOfferDue = gameProgress >= 2;
-    const dailyOfferDue = isNewDaily && current.lastDailyRewardOfferDate !== today;
+    // Every completed daily challenge gets one offer after its result screen.
+    // This is intentionally separate from the daily streak: replaying today's
+    // board should still show the one ad opportunity for that completed run.
+    const dailyOfferDue = game.isDaily;
     const next: PlayerStats = {
       ...current,
       completedLevels,
