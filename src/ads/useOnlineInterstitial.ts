@@ -11,6 +11,7 @@ type InterstitialInstance = {
 };
 
 const FALLBACK_AFTER_MS = 8_000;
+const LIVE_INTERSTITIAL_AD_UNIT_ID = 'ca-app-pub-6927228148817615/3054587445';
 
 /**
  * Preloads an interstitial during an online match, then places it directly
@@ -18,7 +19,7 @@ const FALLBACK_AFTER_MS = 8_000;
  * not use a React Native Modal here: native Google full-screen ads must not be
  * stacked on the result modal, otherwise iOS can swallow the button tap.
  */
-export function useOnlineInterstitial() {
+function useInterstitial() {
   const googleMobileAds = getGoogleMobileAds();
   const adRef = useRef<InterstitialInstance | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -47,14 +48,7 @@ export function useOnlineInterstitial() {
     const { AdEventType, InterstitialAd, TestIds } = googleMobileAds;
     const unitId = isUsingTestAds
       ? TestIds.INTERSTITIAL
-      : process.env.EXPO_PUBLIC_ADMOB_ONLINE_INTERSTITIAL_UNIT_ID;
-
-    // A production unit has not been supplied yet. Never attempt to request an
-    // empty AdMob unit ID; the game should continue cleanly instead.
-    if (!unitId) {
-      runPendingAction();
-      return;
-    }
+      : (process.env.EXPO_PUBLIC_ADMOB_INTERSTITIAL_UNIT_ID ?? LIVE_INTERSTITIAL_AD_UNIT_ID);
 
     loadingRef.current = true;
     const interstitial = InterstitialAd.createForAdRequest(unitId, {
@@ -141,4 +135,12 @@ export function useOnlineInterstitial() {
     // A no-fill/network failure should never make the replay button unresponsive.
     fallbackTimerRef.current = setTimeout(() => runPendingAction(), FALLBACK_AFTER_MS);
   }, [googleMobileAds, loadNextAd, runPendingAction]);
+}
+
+export function useOnlineInterstitial() {
+  return useInterstitial();
+}
+
+export function useLevelInterstitial() {
+  return useInterstitial();
 }

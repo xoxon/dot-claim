@@ -9,6 +9,7 @@ import { OnlineMatchScreen } from './src/components/OnlineMatchScreen';
 import { ProfileScreen } from './src/components/ProfileScreen';
 import { GameBannerAd } from './src/ads/GameBannerAd';
 import { isUsingTestAds, prepareGoogleMobileAds, RewardedAdOffer, type RewardOffer, type RewardOfferTrigger } from './src/ads/RewardedAdOffer';
+import { useLevelInterstitial } from './src/ads/useOnlineInterstitial';
 import { PLAYER_COLOR, RIVAL_COLOR, canConnect, createGame, pickRivalMove, playMove } from './src/game/engine';
 import { getLevelLabel } from './src/game/levels';
 import { loadStats, saveStats } from './src/storage';
@@ -360,6 +361,7 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
   const [rewardDue, setRewardDue] = useState<RewardOfferTrigger | null>(null);
   const completedRef = useRef(false);
   const resultActionRef = useRef(false);
+  const showLevelInterstitialThen = useLevelInterstitial();
   const boardSize = Math.min(Math.max(width - 32, 260), 500);
   const playSound = useGameSounds(soundEnabled);
 
@@ -439,6 +441,14 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
 
     if (!nextReward) {
       next();
+      return;
+    }
+
+    if (nextReward === 'levels') {
+      // Let the native result Modal finish closing before presenting Google's
+      // full-screen ad. Presenting both in the same render turn causes iOS to
+      // swallow the replay touch on some devices.
+      setTimeout(() => showLevelInterstitialThen(next), 250);
       return;
     }
 
