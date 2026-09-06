@@ -500,6 +500,7 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
       <GameBannerAd hidden={hideBanner || resultVisible} />
 
       <Modal transparent animationType="fade" visible={resultVisible} onRequestClose={() => continueAfterResult(restart)}>
+        <SafeAreaProvider>
         <SafeAreaView style={styles.modalSafeArea} edges={['top', 'bottom', 'left', 'right']}>
         <View style={styles.modalScrim}>
           <View style={styles.resultCard}>
@@ -514,6 +515,7 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
           </View>
         </View>
         </SafeAreaView>
+        </SafeAreaProvider>
       </Modal>
     </View>
   );
@@ -529,6 +531,7 @@ function SettingsModal({ visible, stats, onClose, onToggleHaptics, onToggleSound
 }) {
   return (
     <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
+      <SafeAreaProvider>
       <SafeAreaView style={styles.modalSafeArea} edges={['top', 'bottom', 'left', 'right']}>
       <View style={styles.modalScrim}>
         <View style={styles.settingsCard}>
@@ -540,6 +543,7 @@ function SettingsModal({ visible, stats, onClose, onToggleHaptics, onToggleSound
         </View>
       </View>
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

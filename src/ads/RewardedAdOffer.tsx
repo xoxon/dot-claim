@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Constants from 'expo-constants';
 import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 export type RewardOfferTrigger = 'levels' | 'daily' | 'online' | 'manual';
 
@@ -246,6 +246,7 @@ function OfferCard({ offer, status, actionLabel, actionDisabled = false, loading
 }) {
   const copy = OFFER_COPY[offer.trigger];
   return <Modal transparent animationType="fade" visible onRequestClose={onDismiss}>
+    <SafeAreaProvider>
     <SafeAreaView style={styles.safeOverlay} edges={['top', 'bottom', 'left', 'right']}>
     <View style={styles.scrim}>
       <View style={styles.card}>
@@ -266,6 +267,7 @@ function OfferCard({ offer, status, actionLabel, actionDisabled = false, loading
       </View>
     </View>
     </SafeAreaView>
+    </SafeAreaProvider>
   </Modal>;
 }
 

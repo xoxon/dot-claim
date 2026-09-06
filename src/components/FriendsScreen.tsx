@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { io, type Socket } from 'socket.io-client';
 
 import { acceptFriendInvite, createFriendInvite, fetchDirectMessages, fetchFriends, MATCH_SERVER_URL, respondToFriendRequest, searchPlayers, sendDirectMessage, sendFriendRequest } from '../profile/api';
@@ -268,6 +268,7 @@ function ChatModal({ visible, friend, selfId, token, onClose }: { visible: boole
   const chatStatus = friendTyping ? 'yazıyor…' : friendOnline ? 'çevrimiçi' : socketConnected ? 'çevrimdışı' : 'bağlanıyor…';
 
   return <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+    <SafeAreaProvider>
     <SafeAreaView style={styles.chatScreen} edges={['top', 'bottom']}>
       <KeyboardAvoidingView style={styles.chatKeyboard} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.chatHeader}>
@@ -282,6 +283,7 @@ function ChatModal({ visible, friend, selfId, token, onClose }: { visible: boole
         <View style={styles.composer}><TextInput value={draft} onChangeText={onDraftChange} maxLength={500} multiline placeholder="Mesaj yaz" placeholderTextColor="#6E879B" style={styles.composerInput} /><Pressable accessibilityRole="button" accessibilityLabel="Mesaj gönder" disabled={!draft.trim() || sending} onPress={() => void send()} style={[styles.sendButton, (!draft.trim() || sending) && styles.disabled]}><Text style={styles.sendButtonText}>{sending ? '…' : '➤'}</Text></Pressable></View>
       </KeyboardAvoidingView>
     </SafeAreaView>
+    </SafeAreaProvider>
   </Modal>;
 }
 

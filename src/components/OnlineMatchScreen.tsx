@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { io, type Socket } from 'socket.io-client';
 
 import { useGameSounds } from '../audio';
@@ -271,6 +271,7 @@ export function OnlineMatchScreen({ mode, difficulty, friendInvite, profile, tok
       )}
 
       <Modal transparent animationType="fade" visible={resultVisible} onRequestClose={() => continueAfterResult(onBack)}>
+        <SafeAreaProvider>
         <SafeAreaView style={styles.modalSafeArea} edges={['top', 'bottom', 'left', 'right']}>
         <View style={styles.scrim}>
           <View style={styles.resultCard}>
@@ -292,6 +293,7 @@ export function OnlineMatchScreen({ mode, difficulty, friendInvite, profile, tok
           </View>
         </View>
         </SafeAreaView>
+        </SafeAreaProvider>
       </Modal>
 
       <PlayerProfileModal profile={inspectedProfile} onClose={() => setInspectedProfile(null)} />
@@ -365,6 +367,7 @@ function PlayerProfileModal({ profile, onClose }: { profile: PlayerProfile | nul
     { icon: '♛', title: 'Yükselen yıldız', detail: 'Gümüş lige yüksel.', unlocked: profile.trophies >= 300 },
   ];
   return <Modal transparent animationType="fade" visible onRequestClose={onClose}>
+    <SafeAreaProvider>
     <SafeAreaView style={styles.modalSafeArea} edges={['top', 'bottom', 'left', 'right']}>
     <View style={styles.profileScrim}>
       <View style={styles.profileModal}>
@@ -385,6 +388,7 @@ function PlayerProfileModal({ profile, onClose }: { profile: PlayerProfile | nul
       </View>
     </View>
     </SafeAreaView>
+    </SafeAreaProvider>
   </Modal>;
 }
 
