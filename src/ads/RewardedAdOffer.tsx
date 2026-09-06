@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Constants from 'expo-constants';
 import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export type RewardOfferTrigger = 'levels' | 'daily' | 'online' | 'manual';
 
@@ -245,6 +246,7 @@ function OfferCard({ offer, status, actionLabel, actionDisabled = false, loading
 }) {
   const copy = OFFER_COPY[offer.trigger];
   return <Modal transparent animationType="fade" visible onRequestClose={onDismiss}>
+    <SafeAreaView style={styles.safeOverlay} edges={['top', 'bottom', 'left', 'right']}>
     <View style={styles.scrim}>
       <View style={styles.card}>
         <Text style={styles.eyebrow}>{copy.eyebrow}</Text>
@@ -263,11 +265,13 @@ function OfferCard({ offer, status, actionLabel, actionDisabled = false, loading
         </Pressable>
       </View>
     </View>
+    </SafeAreaView>
   </Modal>;
 }
 
 const styles = StyleSheet.create({
   scrim: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.80)', padding: 24, justifyContent: 'center' },
+  safeOverlay: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.80)' },
   card: { borderRadius: 28, padding: 26, alignItems: 'center', backgroundColor: '#10263D', borderWidth: 1, borderColor: '#35607E' },
   eyebrow: { color: '#70D2FF', fontSize: 10, fontWeight: '900', letterSpacing: 1.4 },
   icon: { color: '#FFC857', fontSize: 44, marginTop: 9 },

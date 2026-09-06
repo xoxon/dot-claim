@@ -1,7 +1,7 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useGameSounds } from './src/audio';
 import { GameBoard } from './src/components/GameBoard';
@@ -163,7 +163,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AppErrorBoundary>
-        <SafeAreaView style={styles.safeArea}>
+        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
           <StatusBar barStyle="light-content" />
           {screen === 'home' ? (
           <HomeScreen
@@ -376,13 +376,20 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
   onPlayAgain: () => void;
   hideBanner: boolean;
 }) {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [game, setGame] = useState(() => createGame(config.level, difficulty, config.isDaily));
   const [resultVisible, setResultVisible] = useState(false);
   const [rewardDue, setRewardDue] = useState<RewardOfferTrigger | null>(null);
   const completedRef = useRef(false);
   const resultActionRef = useRef(false);
-  const boardSize = Math.min(Math.max(width - 32, 260), 500);
+  // The standard iPhone 17 has less usable vertical space than the Pro Max.
+  // Keep every game control, the banner slot and the board on-screen by letting
+  // the square board use the actual safe viewport rather than width alone.
+  const boardSize = Math.min(
+    Math.min(Math.max(width - 32, 220), 500),
+    Math.max(220, height - insets.top - insets.bottom - 400),
+  );
   const playSound = useGameSounds(soundEnabled);
 
   const haptic = useCallback((style: Haptics.ImpactFeedbackStyle) => {
@@ -493,6 +500,7 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
       <GameBannerAd hidden={hideBanner || resultVisible} />
 
       <Modal transparent animationType="fade" visible={resultVisible} onRequestClose={() => continueAfterResult(restart)}>
+        <SafeAreaView style={styles.modalSafeArea} edges={['top', 'bottom', 'left', 'right']}>
         <View style={styles.modalScrim}>
           <View style={styles.resultCard}>
             <Text style={styles.resultEmoji}>{game.playerScore > game.rivalScore ? '✦' : game.playerScore === game.rivalScore ? '≈' : '◌'}</Text>
@@ -505,6 +513,7 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
             </View>
           </View>
         </View>
+        </SafeAreaView>
       </Modal>
     </View>
   );
@@ -520,6 +529,7 @@ function SettingsModal({ visible, stats, onClose, onToggleHaptics, onToggleSound
 }) {
   return (
     <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
+      <SafeAreaView style={styles.modalSafeArea} edges={['top', 'bottom', 'left', 'right']}>
       <View style={styles.modalScrim}>
         <View style={styles.settingsCard}>
           <View style={styles.settingsHeader}><Text style={styles.settingsTitle}>Ayarlar</Text><IconButton label="Ayarları kapat" symbol="×" onPress={onClose} /></View>
@@ -529,6 +539,7 @@ function SettingsModal({ visible, stats, onClose, onToggleHaptics, onToggleSound
           <Text style={styles.settingsFootnote}>Çevrimiçi profilin, avatarın ve maç ilerlemen eşleşme sunucusunda saklanır. Avatarını istediğin zaman değiştirebilirsin.</Text>
         </View>
       </View>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -678,6 +689,7 @@ const styles = StyleSheet.create({
   legendLine: { width: 17, height: 4, borderRadius: 2 },
   legendText: { color: '#849AAE', fontSize: 11 },
   modalScrim: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.76)', padding: 24, justifyContent: 'center' },
+  modalSafeArea: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.76)' },
   resultCard: { borderRadius: 28, padding: 27, backgroundColor: '#10263D', borderWidth: 1, borderColor: '#35607E', alignItems: 'center' },
   resultEmoji: { fontSize: 42, color: '#FFC857' },
   resultTitle: { color: '#F7FBFF', fontSize: 26, fontWeight: '800', marginTop: 8 },

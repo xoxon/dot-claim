@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { io, type Socket } from 'socket.io-client';
 
 import { useGameSounds } from '../audio';
@@ -31,7 +32,8 @@ export function OnlineMatchScreen({ mode, difficulty, friendInvite, profile, tok
   onProfileUpdated: (profile: PlayerProfile) => void;
   hideBanner: boolean;
 }) {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const socketRef = useRef<Socket | null>(null);
   const completeRef = useRef(false);
   const resultActionRef = useRef(false);
@@ -48,7 +50,11 @@ export function OnlineMatchScreen({ mode, difficulty, friendInvite, profile, tok
   const [inspectedProfile, setInspectedProfile] = useState<PlayerProfile | null>(null);
   const playSound = useGameSounds(soundEnabled);
   const showInterstitialThen = useOnlineInterstitial();
-  const boardSize = Math.min(Math.max(width - 32, 260), 500);
+  const isDiceMatch = match?.mode === 'dice';
+  const boardSize = Math.min(
+    Math.min(Math.max(width - 32, 220), 500),
+    Math.max(220, height - insets.top - insets.bottom - (isDiceMatch ? 500 : 420)),
+  );
 
   const haptic = useCallback((style: Haptics.ImpactFeedbackStyle) => {
     if (hapticsEnabled && Platform.OS !== 'web') void Haptics.impactAsync(style).catch(() => undefined);
@@ -209,7 +215,6 @@ export function OnlineMatchScreen({ mode, difficulty, friendInvite, profile, tok
     });
   }, [showInterstitialThen]);
 
-  const isDiceMatch = match?.mode === 'dice';
   const title = connection === 'connecting' ? 'Sunucuya bağlanılıyor…'
       : connection === 'waiting' ? friendInvite ? `${friendInvite.friend.displayName} daveti kabul ediyor…` : 'Rakip aranıyor…'
       : connection === 'matched' ? 'Rakibin bulundu!'
@@ -266,6 +271,7 @@ export function OnlineMatchScreen({ mode, difficulty, friendInvite, profile, tok
       )}
 
       <Modal transparent animationType="fade" visible={resultVisible} onRequestClose={() => continueAfterResult(onBack)}>
+        <SafeAreaView style={styles.modalSafeArea} edges={['top', 'bottom', 'left', 'right']}>
         <View style={styles.scrim}>
           <View style={styles.resultCard}>
             <Text style={styles.resultIcon}>{didWin ? '✦' : didDraw ? '≈' : '◌'}</Text>
@@ -285,6 +291,7 @@ export function OnlineMatchScreen({ mode, difficulty, friendInvite, profile, tok
             </View>
           </View>
         </View>
+        </SafeAreaView>
       </Modal>
 
       <PlayerProfileModal profile={inspectedProfile} onClose={() => setInspectedProfile(null)} />
@@ -358,6 +365,7 @@ function PlayerProfileModal({ profile, onClose }: { profile: PlayerProfile | nul
     { icon: '♛', title: 'Yükselen yıldız', detail: 'Gümüş lige yüksel.', unlocked: profile.trophies >= 300 },
   ];
   return <Modal transparent animationType="fade" visible onRequestClose={onClose}>
+    <SafeAreaView style={styles.modalSafeArea} edges={['top', 'bottom', 'left', 'right']}>
     <View style={styles.profileScrim}>
       <View style={styles.profileModal}>
         <Pressable accessibilityRole="button" accessibilityLabel="Profili kapat" onPress={onClose} style={styles.profileClose}><Text style={styles.profileCloseText}>×</Text></Pressable>
@@ -376,6 +384,7 @@ function PlayerProfileModal({ profile, onClose }: { profile: PlayerProfile | nul
         <OnlineButton label="Maça dön" onPress={onClose} />
       </View>
     </View>
+    </SafeAreaView>
   </Modal>;
 }
 
@@ -455,6 +464,7 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
   scrim: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.76)', padding: 24, justifyContent: 'center' },
   profileScrim: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.82)', padding: 20, justifyContent: 'center' },
+  modalSafeArea: { flex: 1, backgroundColor: 'rgba(1, 8, 16, 0.76)' },
   profileModal: { maxWidth: 460, alignSelf: 'center', width: '100%', borderRadius: 28, padding: 22, backgroundColor: '#10263D', borderWidth: 1, borderColor: '#35607E', alignItems: 'center' },
   profileClose: { position: 'absolute', top: 13, right: 13, zIndex: 1, width: 35, height: 35, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#18354D' },
   profileCloseText: { color: '#EAF4FA', fontSize: 27, lineHeight: 29, fontWeight: '400', marginTop: -3 },
