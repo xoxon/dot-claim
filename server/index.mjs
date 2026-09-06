@@ -68,6 +68,40 @@ database.exec(`
   CREATE INDEX IF NOT EXISTS matches_blue_user_idx ON matches(blue_user_id, ended_at DESC);
   CREATE INDEX IF NOT EXISTS matches_red_user_idx ON matches(red_user_id, ended_at DESC);
   CREATE INDEX IF NOT EXISTS users_leaderboard_idx ON users(trophies DESC, xp DESC, wins DESC);
+  CREATE TABLE IF NOT EXISTS friendships (
+    user_a_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_b_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    requested_by_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'accepted')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_a_id, user_b_id),
+    CHECK (user_a_id < user_b_id)
+  );
+  CREATE INDEX IF NOT EXISTS friendships_user_a_idx ON friendships(user_a_id, status, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS friendships_user_b_idx ON friendships(user_b_id, status, updated_at DESC);
+  CREATE TABLE IF NOT EXISTS direct_messages (
+    id TEXT PRIMARY KEY,
+    sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    recipient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    sent_at TEXT NOT NULL,
+    read_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS direct_messages_conversation_idx ON direct_messages(sender_id, recipient_id, sent_at DESC);
+  CREATE TABLE IF NOT EXISTS friend_invites (
+    id TEXT PRIMARY KEY,
+    inviter_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    invitee_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    mode TEXT NOT NULL CHECK (mode IN ('classic', 'dice')),
+    difficulty TEXT NOT NULL CHECK (difficulty IN ('easy', 'normal', 'hard')),
+    state TEXT NOT NULL CHECK (state IN ('pending', 'accepted', 'used', 'expired', 'declined')),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS friend_invites_invitee_idx ON friend_invites(invitee_id, state, created_at DESC);
+  CREATE INDEX IF NOT EXISTS friend_invites_inviter_idx ON friend_invites(inviter_id, state, created_at DESC);
 `);
 
 const userColumns = database.prepare('PRAGMA table_info(users)').all();
@@ -82,6 +116,7 @@ if (!matchColumns.some((column) => column.name === 'mode')) {
 }
 
 const waiting = new Map();
+const inviteWaiting = new Map();
 const rooms = new Map();
 const socketRoom = new Map();
 const rateBuckets = new Map();
@@ -175,6 +210,92 @@ function createAvailableDisplayName() {
   return `Oyuncu ${randomUUID().slice(0, 8)}`;
 }
 
+function friendshipKey(firstUserId, secondUserId) {
+  return firstUserId < secondUserId ? [firstUserId, secondUserId] : [secondUserId, firstUserId];
+}
+
+function getFriendship(firstUserId, secondUserId) {
+  const [userAId, userBId] = friendshipKey(firstUserId, secondUserId);
+  return database.prepare('SELECT * FROM friendships WHERE user_a_id = ? AND user_b_id = ?').get(userAId, userBId);
+}
+
+function areFriends(firstUserId, secondUserId) {
+  return getFriendship(firstUserId, secondUserId)?.status === 'accepted';
+}
+
+function normalizeMessage(value) {
+  if (typeof value !== 'string') return null;
+  const message = value.trim().replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  return message.length >= 1 && message.length <= 500 ? message : null;
+}
+
+function expireOldInvites() {
+  database.prepare("UPDATE friend_invites SET state = 'expired', updated_at = ? WHERE state IN ('pending', 'accepted') AND expires_at <= ?").run(now(), now());
+}
+
+function friendListFor(userId) {
+  const rows = database.prepare(`
+    SELECT friendships.*, CASE WHEN friendships.user_a_id = ? THEN friendships.user_b_id ELSE friendships.user_a_id END AS friend_id
+    FROM friendships
+    WHERE friendships.status = 'accepted' AND (friendships.user_a_id = ? OR friendships.user_b_id = ?)
+    ORDER BY friendships.updated_at DESC
+  `).all(userId, userId, userId);
+  return rows.map((row) => ({
+    friendshipId: `${row.user_a_id}:${row.user_b_id}`,
+    since: row.updated_at,
+    profile: publicUser(getUserById(row.friend_id)),
+  }));
+}
+
+function friendRequestsFor(userId, direction) {
+  const incoming = direction === 'incoming';
+  const rows = database.prepare(`
+    SELECT friendships.*, CASE WHEN friendships.user_a_id = ? THEN friendships.user_b_id ELSE friendships.user_a_id END AS other_user_id
+    FROM friendships
+    WHERE friendships.status = 'pending' AND friendships.${incoming ? 'requested_by_id != ?' : 'requested_by_id = ?'}
+      AND (friendships.user_a_id = ? OR friendships.user_b_id = ?)
+    ORDER BY friendships.created_at DESC
+  `).all(userId, userId, userId, userId);
+  return rows.map((row) => ({
+    id: `${row.user_a_id}:${row.user_b_id}`,
+    createdAt: row.created_at,
+    profile: publicUser(getUserById(row.other_user_id)),
+  }));
+}
+
+function inviteView(invite, viewerId) {
+  const friendId = invite.inviter_id === viewerId ? invite.invitee_id : invite.inviter_id;
+  return {
+    id: invite.id,
+    mode: invite.mode,
+    difficulty: invite.difficulty,
+    state: invite.state,
+    createdAt: invite.created_at,
+    expiresAt: invite.expires_at,
+    direction: invite.inviter_id === viewerId ? 'outgoing' : 'incoming',
+    friend: publicUser(getUserById(friendId)),
+  };
+}
+
+function invitesFor(userId) {
+  expireOldInvites();
+  const rows = database.prepare(`
+    SELECT * FROM friend_invites
+    WHERE (inviter_id = ? OR invitee_id = ?) AND state IN ('pending', 'accepted')
+    ORDER BY created_at DESC LIMIT 20
+  `).all(userId, userId);
+  return rows.map((invite) => inviteView(invite, userId));
+}
+
+function leaveInviteWaiting(socketId) {
+  for (const [inviteId, sockets] of inviteWaiting) {
+    for (const [userId, waitingSocketId] of sockets) {
+      if (waitingSocketId === socketId) sockets.delete(userId);
+    }
+    if (!sockets.size) inviteWaiting.delete(inviteId);
+  }
+}
+
 function edgeKey(a, b) {
   return [a, b].sort().join('--');
 }
@@ -215,6 +336,18 @@ function createMatch(difficulty, mode, blueSocket, redSocket) {
       red: { socketId: redSocket.id, userId: redSocket.data.userId, profile: publicUser(redUser) },
     },
   };
+}
+
+function openMatchRoom(difficulty, mode, blueSocket, redSocket) {
+  const room = createMatch(difficulty, mode, blueSocket, redSocket);
+  rooms.set(room.id, room);
+  socketRoom.set(blueSocket.id, room.id);
+  socketRoom.set(redSocket.id, room.id);
+  blueSocket.join(room.id);
+  redSocket.join(room.id);
+  blueSocket.emit('match_found', { roomId: room.id, color: 'blue', state: publicState(room) });
+  redSocket.emit('match_found', { roomId: room.id, color: 'red', state: publicState(room) });
+  return room;
 }
 
 function canConnect(state, aId, bId) {
@@ -493,11 +626,12 @@ function privacyPage(response) {
       <li><strong>Uygulama içi kimlik:</strong> Her yükleme için rastgele oluşturulan uygulama kimliği ve oturum anahtarı.</li>
       <li><strong>Profil verileri:</strong> Seçtiğiniz kullanıcı adı ve isteğe bağlı avatar fotoğrafı.</li>
       <li><strong>Oyun verileri:</strong> Çevrimiçi eşleşmeler, hamle sonuçları, skorlar, kupa, altın, XP ve maç geçmişi.</li>
+      <li><strong>Sosyal veriler:</strong> Arkadaşlık istekleri, arkadaş listeniz, oyun davetleri ve yalnızca gönderdiğiniz metin mesajları.</li>
     </ul>
     <h2>Neden işliyoruz?</h2>
-    <p>Bu veriler yalnızca kullanıcı profilini sağlamak, iki oyuncuyu eşleştirmek, oyunun sonucunu doğrulamak, sıralamayı göstermek ve hileyi önlemek için kullanılır. Reklam gösterilmez, reklam kimliği kullanılmaz, uygulama içi davranışınız başka uygulama veya sitelerde takip edilmez ve veriler satılmaz.</p>
+    <p>Bu veriler yalnızca kullanıcı profilini sağlamak, arkadaşlarınızı ve mesajlaşmayı işletmek, iki oyuncuyu eşleştirmek, oyunun sonucunu doğrulamak, sıralamayı göstermek ve hileyi önlemek için kullanılır. Reklam kimliği kullanılmaz, uygulama içi davranışınız başka uygulama veya sitelerde takip edilmez ve veriler satılmaz.</p>
     <h2>Kimler görebilir?</h2>
-    <p>Çevrimiçi oynadığınız rakipler ve liderlik tablosunu görüntüleyen diğer oyuncular, kullanıcı adınızı, avatarınızı, liginizi ve oyunla ilgili genel istatistiklerinizi görebilir. Avatarınız yalnızca siz yüklemeyi seçerseniz işlenir.</p>
+    <p>Çevrimiçi oynadığınız rakipler ve liderlik tablosunu görüntüleyen diğer oyuncular, kullanıcı adınızı, avatarınızı, liginizi ve oyunla ilgili genel istatistiklerinizi görebilir. Yalnızca kabul ettiğiniz arkadaşlarınızla birbirinize gönderdiğiniz metin mesajlarını görebilirsiniz. Avatarınız yalnızca siz yüklemeyi seçerseniz işlenir.</p>
     <h2>Saklama ve silme</h2>
     <p>Profil ve oyun verileri hesabınız etkin olduğu sürece saklanır. Uygulamada <strong>Profil → Hesabımı sil</strong> yolunu izleyerek hesabınızı kalıcı olarak silebilirsiniz. Bu işlem kullanıcı adı, avatar, oturum anahtarları ve hesabınızla ilişkili çevrimiçi maç kayıtlarını sunucudan kaldırır. Silme işlemi geri alınamaz.</p>
     <h2>Çocukların gizliliği</h2>
@@ -636,6 +770,140 @@ async function handleHttp(request, response) {
     return sendJson(request, response, 200, { profile: publicUser(user) });
   }
 
+  if (request.method === 'GET' && url.pathname === '/v1/users/search') {
+    if (!rateLimit(request, response, 'user-search', 30)) return;
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const query = typeof url.searchParams.get('q') === 'string' ? url.searchParams.get('q').trim() : '';
+    if (query.length < 2) return sendJson(request, response, 200, { users: [] });
+    const rows = database.prepare(`
+      SELECT * FROM users
+      WHERE id != ? AND display_name LIKE ? COLLATE NOCASE
+      ORDER BY display_name COLLATE NOCASE ASC LIMIT 12
+    `).all(user.id, `%${query.replace(/[%_]/g, '')}%`);
+    return sendJson(request, response, 200, { users: rows.map(publicUser) });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/v1/me/friends') {
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    return sendJson(request, response, 200, {
+      friends: friendListFor(user.id),
+      incomingRequests: friendRequestsFor(user.id, 'incoming'),
+      outgoingRequests: friendRequestsFor(user.id, 'outgoing'),
+      invites: invitesFor(user.id),
+    });
+  }
+
+  if (request.method === 'POST' && url.pathname === '/v1/me/friend-requests') {
+    if (!rateLimit(request, response, 'friend-request', 20)) return;
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const body = await readJson(request, 8_000);
+    const targetUserId = typeof body.userId === 'string' ? body.userId : '';
+    if (targetUserId === user.id) return sendError(request, response, 400, 'Kendine arkadaşlık isteği gönderemezsin.');
+    const target = getUserById(targetUserId);
+    if (!target) return sendError(request, response, 404, 'Oyuncu bulunamadı.');
+    const [userAId, userBId] = friendshipKey(user.id, targetUserId);
+    const existing = getFriendship(user.id, targetUserId);
+    if (existing?.status === 'accepted') return sendError(request, response, 409, 'Bu oyuncu zaten arkadaşın.');
+    if (existing?.requested_by_id === user.id) return sendError(request, response, 409, 'Arkadaşlık isteği zaten gönderildi.');
+    if (existing) {
+      database.prepare("UPDATE friendships SET status = 'accepted', updated_at = ? WHERE user_a_id = ? AND user_b_id = ?").run(now(), userAId, userBId);
+      return sendJson(request, response, 200, { state: 'accepted', friend: publicUser(target) });
+    }
+    const time = now();
+    database.prepare(`
+      INSERT INTO friendships (user_a_id, user_b_id, requested_by_id, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'pending', ?, ?)
+    `).run(userAId, userBId, user.id, time, time);
+    return sendJson(request, response, 201, { state: 'pending', friend: publicUser(target) });
+  }
+
+  const friendRequestMatch = url.pathname.match(/^\/v1\/me\/friend-requests\/([0-9a-f-]{36})\/(accept|decline)$/i);
+  if (request.method === 'POST' && friendRequestMatch) {
+    if (!rateLimit(request, response, 'friend-request-action', 30)) return;
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const [, requesterId, action] = friendRequestMatch;
+    const friendship = getFriendship(user.id, requesterId);
+    if (!friendship || friendship.status !== 'pending' || friendship.requested_by_id !== requesterId) return sendError(request, response, 404, 'Bekleyen arkadaşlık isteği bulunamadı.');
+    if (action === 'accept') {
+      database.prepare("UPDATE friendships SET status = 'accepted', updated_at = ? WHERE user_a_id = ? AND user_b_id = ?").run(now(), friendship.user_a_id, friendship.user_b_id);
+      return sendJson(request, response, 200, { state: 'accepted', friend: publicUser(getUserById(requesterId)) });
+    }
+    database.prepare('DELETE FROM friendships WHERE user_a_id = ? AND user_b_id = ?').run(friendship.user_a_id, friendship.user_b_id);
+    return sendJson(request, response, 200, { state: 'declined' });
+  }
+
+  const messageMatch = url.pathname.match(/^\/v1\/me\/friends\/([0-9a-f-]{36})\/messages$/i);
+  if (messageMatch) {
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const friendId = messageMatch[1];
+    if (!areFriends(user.id, friendId)) return sendError(request, response, 403, 'Yalnızca arkadaşlarınla mesajlaşabilirsin.');
+    if (request.method === 'GET') {
+      const requested = Number(url.searchParams.get('limit') ?? 50);
+      const limit = Number.isInteger(requested) ? Math.min(Math.max(requested, 1), 100) : 50;
+      database.prepare('UPDATE direct_messages SET read_at = ? WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL').run(now(), friendId, user.id);
+      const rows = database.prepare(`
+        SELECT * FROM direct_messages
+        WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
+        ORDER BY sent_at DESC LIMIT ?
+      `).all(user.id, friendId, friendId, user.id, limit).reverse();
+      return sendJson(request, response, 200, { messages: rows.map((message) => ({
+        id: message.id,
+        senderId: message.sender_id,
+        body: message.body,
+        sentAt: message.sent_at,
+        readAt: message.read_at,
+      })) });
+    }
+    if (request.method === 'POST') {
+      if (!rateLimit(request, response, 'direct-message', 60)) return;
+      const body = await readJson(request, 12_000);
+      const message = normalizeMessage(body.body);
+      if (!message) return sendError(request, response, 400, 'Mesaj 1 ile 500 karakter arasında olmalı.');
+      const created = { id: randomUUID(), sentAt: now() };
+      database.prepare('INSERT INTO direct_messages (id, sender_id, recipient_id, body, sent_at) VALUES (?, ?, ?, ?, ?)').run(created.id, user.id, friendId, message, created.sentAt);
+      return sendJson(request, response, 201, { message: { id: created.id, senderId: user.id, body: message, sentAt: created.sentAt, readAt: null } });
+    }
+  }
+
+  const friendInviteMatch = url.pathname.match(/^\/v1\/me\/friends\/([0-9a-f-]{36})\/invites$/i);
+  if (request.method === 'POST' && friendInviteMatch) {
+    if (!rateLimit(request, response, 'friend-invite', 20)) return;
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const inviteeId = friendInviteMatch[1];
+    if (!areFriends(user.id, inviteeId)) return sendError(request, response, 403, 'Yalnızca arkadaşlarını oyuna çağırabilirsin.');
+    const body = await readJson(request, 8_000);
+    const mode = body.mode === 'dice' ? 'dice' : 'classic';
+    const difficulty = ['easy', 'normal', 'hard'].includes(body.difficulty) ? body.difficulty : 'normal';
+    expireOldInvites();
+    database.prepare("UPDATE friend_invites SET state = 'declined', updated_at = ? WHERE inviter_id = ? AND invitee_id = ? AND state IN ('pending', 'accepted')").run(now(), user.id, inviteeId);
+    const time = now();
+    const invite = { id: randomUUID(), inviter_id: user.id, invitee_id: inviteeId, mode, difficulty, state: 'pending', created_at: time, expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), updated_at: time };
+    database.prepare(`
+      INSERT INTO friend_invites (id, inviter_id, invitee_id, mode, difficulty, state, created_at, expires_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(invite.id, invite.inviter_id, invite.invitee_id, invite.mode, invite.difficulty, invite.state, invite.created_at, invite.expires_at, invite.updated_at);
+    return sendJson(request, response, 201, { invite: inviteView(invite, user.id) });
+  }
+
+  const inviteAcceptMatch = url.pathname.match(/^\/v1\/me\/invites\/([0-9a-f-]{36})\/accept$/i);
+  if (request.method === 'POST' && inviteAcceptMatch) {
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    expireOldInvites();
+    const invite = database.prepare('SELECT * FROM friend_invites WHERE id = ?').get(inviteAcceptMatch[1]);
+    if (!invite || invite.invitee_id !== user.id || invite.state !== 'pending') return sendError(request, response, 404, 'Geçerli bir oyun daveti bulunamadı.');
+    database.prepare("UPDATE friend_invites SET state = 'accepted', updated_at = ? WHERE id = ?").run(now(), invite.id);
+    invite.state = 'accepted';
+    invite.updated_at = now();
+    return sendJson(request, response, 200, { invite: inviteView(invite, user.id) });
+  }
+
   if (request.method === 'PATCH' && url.pathname === '/v1/me') {
     if (!rateLimit(request, response, 'profile', 20)) return;
     const user = requireAuthenticatedUser(request, response);
@@ -676,6 +944,9 @@ async function handleHttp(request, response) {
     const inActiveMatch = [...rooms.values()].some((room) => !room.isComplete && Object.values(room.players).some((player) => player.userId === user.id));
     if (inActiveMatch) return sendError(request, response, 409, 'Çevrim içi maç bittiğinde hesabını silebilirsin.');
     database.transaction(() => {
+      database.prepare('DELETE FROM direct_messages WHERE sender_id = ? OR recipient_id = ?').run(user.id, user.id);
+      database.prepare('DELETE FROM friend_invites WHERE inviter_id = ? OR invitee_id = ?').run(user.id, user.id);
+      database.prepare('DELETE FROM friendships WHERE user_a_id = ? OR user_b_id = ?').run(user.id, user.id);
       database.prepare('DELETE FROM matches WHERE blue_user_id = ? OR red_user_id = ?').run(user.id, user.id);
       database.prepare('DELETE FROM users WHERE id = ?').run(user.id);
     })();
@@ -733,6 +1004,7 @@ io.on('connection', (socket) => {
     const selectedMode = mode === 'dice' ? 'dice' : 'classic';
     const queueKey = `${selectedMode}:${selectedDifficulty}`;
     leaveWaiting(socket.id);
+    leaveInviteWaiting(socket.id);
     const queue = waiting.get(queueKey) ?? [];
     const opponentId = queue.find((id) => id !== socket.id && io.sockets.sockets.has(id));
     if (!opponentId) {
@@ -743,14 +1015,34 @@ io.on('connection', (socket) => {
     waiting.set(queueKey, queue.filter((id) => id !== opponentId));
     const opponent = io.sockets.sockets.get(opponentId);
     if (!opponent) return socket.emit('queue_status', { state: 'waiting', difficulty: selectedDifficulty, mode: selectedMode });
-    const room = createMatch(selectedDifficulty, selectedMode, opponent, socket);
-    rooms.set(room.id, room);
-    socketRoom.set(opponentId, room.id);
-    socketRoom.set(socket.id, room.id);
-    opponent.join(room.id);
-    socket.join(room.id);
-    opponent.emit('match_found', { roomId: room.id, color: 'blue', state: publicState(room) });
-    socket.emit('match_found', { roomId: room.id, color: 'red', state: publicState(room) });
+    openMatchRoom(selectedDifficulty, selectedMode, opponent, socket);
+  });
+
+  socket.on('join_friend_invite', ({ inviteId } = {}) => {
+    if (typeof inviteId !== 'string' || !/^[0-9a-f-]{36}$/i.test(inviteId)) return socket.emit('move_rejected', { message: 'Oyun daveti geçersiz.' });
+    expireOldInvites();
+    const invite = database.prepare('SELECT * FROM friend_invites WHERE id = ?').get(inviteId);
+    const userId = socket.data.userId;
+    if (!invite || !['pending', 'accepted'].includes(invite.state) || (invite.inviter_id !== userId && invite.invitee_id !== userId)) {
+      return socket.emit('move_rejected', { message: 'Bu oyun daveti artık geçerli değil.' });
+    }
+    if (invite.state === 'pending' && userId !== invite.inviter_id) return socket.emit('move_rejected', { message: 'Önce oyun davetini kabul etmelisin.' });
+    if (!areFriends(invite.inviter_id, invite.invitee_id)) return socket.emit('move_rejected', { message: 'Bu oyuncu artık arkadaş listende değil.' });
+
+    leaveWaiting(socket.id);
+    leaveInviteWaiting(socket.id);
+    const sockets = inviteWaiting.get(invite.id) ?? new Map();
+    sockets.set(userId, socket.id);
+    inviteWaiting.set(invite.id, sockets);
+    const inviterSocket = io.sockets.sockets.get(sockets.get(invite.inviter_id));
+    const inviteeSocket = io.sockets.sockets.get(sockets.get(invite.invitee_id));
+    if (!inviterSocket || !inviteeSocket) {
+      return socket.emit('queue_status', { state: 'waiting', difficulty: invite.difficulty, mode: invite.mode, inviteId: invite.id });
+    }
+
+    database.prepare("UPDATE friend_invites SET state = 'used', updated_at = ? WHERE id = ?").run(now(), invite.id);
+    inviteWaiting.delete(invite.id);
+    openMatchRoom(invite.difficulty, invite.mode, inviterSocket, inviteeSocket);
   });
 
   socket.on('start_match', ({ roomId } = {}) => {
@@ -795,6 +1087,7 @@ io.on('connection', (socket) => {
 
   socket.on('leave_match', () => {
     leaveWaiting(socket.id);
+    leaveInviteWaiting(socket.id);
     const room = rooms.get(socketRoom.get(socket.id));
     if (!room || room.finalized) return;
     if (!room.started) return cancelUnstartedRoom(room);
@@ -804,6 +1097,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     leaveWaiting(socket.id);
+    leaveInviteWaiting(socket.id);
     const room = rooms.get(socketRoom.get(socket.id));
     if (!room || room.finalized) return;
     if (!room.started) return cancelUnstartedRoom(room);

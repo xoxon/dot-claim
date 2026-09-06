@@ -9,7 +9,7 @@ import { useOnlineInterstitial } from '../ads/useOnlineInterstitial';
 import { canConnect } from '../game/engine';
 import type { Difficulty, GameState } from '../game/types';
 import { MATCH_SERVER_URL } from '../profile/api';
-import type { PlayerProfile } from '../profile/types';
+import type { FriendInvite, PlayerProfile } from '../profile/types';
 import type { MatchColor, OnlineMatchResult, OnlineMatchState, OnlineMode } from '../online/types';
 import { GameBoard } from './GameBoard';
 import { Avatar } from './ProfileScreen';
@@ -18,9 +18,10 @@ const SERVER_URL = MATCH_SERVER_URL;
 
 type ConnectionState = 'connecting' | 'waiting' | 'matched' | 'playing' | 'opponent_left' | 'error';
 
-export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabled, hapticsEnabled, onBack, onPlayAgain, onProfileUpdated, hideBanner }: {
+export function OnlineMatchScreen({ mode, difficulty, friendInvite, profile, token, soundEnabled, hapticsEnabled, onBack, onPlayAgain, onProfileUpdated, hideBanner }: {
   mode: OnlineMode;
   difficulty: Difficulty;
+  friendInvite: FriendInvite | null;
   profile: PlayerProfile | null;
   token: string | null;
   soundEnabled: boolean;
@@ -62,7 +63,8 @@ export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabl
     socketRef.current = socket;
     socket.on('connect', () => {
       setConnection('waiting');
-      socket.emit('find_match', { difficulty, mode });
+      if (friendInvite) socket.emit('join_friend_invite', { inviteId: friendInvite.id });
+      else socket.emit('find_match', { difficulty, mode });
     });
     socket.on('queue_status', () => setConnection('waiting'));
     socket.on('match_found', ({ color: assignedColor, state }: { color: MatchColor; state: OnlineMatchState }) => {
@@ -128,7 +130,7 @@ export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabl
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [difficulty, haptic, mode, onProfileUpdated, playSound, profile, token]);
+  }, [difficulty, friendInvite?.id, haptic, mode, onProfileUpdated, playSound, profile, token]);
 
   const localGame = useMemo<GameState | null>(() => {
     if (!match || !color) return null;
@@ -209,7 +211,7 @@ export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabl
 
   const isDiceMatch = match?.mode === 'dice';
   const title = connection === 'connecting' ? 'Sunucuya bağlanılıyor…'
-      : connection === 'waiting' ? 'Rakip aranıyor…'
+      : connection === 'waiting' ? friendInvite ? `${friendInvite.friend.displayName} daveti kabul ediyor…` : 'Rakip aranıyor…'
       : connection === 'matched' ? 'Rakibin bulundu!'
       : connection === 'opponent_left' ? 'Rakip ayrıldı.'
         : connection === 'error' ? 'Bağlantı kurulamadı.'
@@ -258,7 +260,7 @@ export function OnlineMatchScreen({ mode, difficulty, profile, token, soundEnabl
         <View style={styles.waitingCard}>
           <Text style={styles.waitingSymbol}>{connection === 'error' ? '!' : '◌'}</Text>
           <Text style={styles.waitingTitle}>{title}</Text>
-          <Text style={styles.waitingText}>{connection === 'waiting' || connection === 'connecting' ? 'Başka bir oyuncu eşleşmeye katıldığında oyun otomatik başlar.' : SERVER_URL ? `Sunucu adresini kontrol edin: ${SERVER_URL}` : 'Çevrimiçi sunucu adresi bu sürüme henüz tanımlanmadı.'}</Text>
+          <Text style={styles.waitingText}>{connection === 'waiting' || connection === 'connecting' ? friendInvite ? 'İkiniz de davete katıldığınızda özel maç lobisi otomatik açılır.' : 'Başka bir oyuncu eşleşmeye katıldığında oyun otomatik başlar.' : SERVER_URL ? `Sunucu adresini kontrol edin: ${SERVER_URL}` : 'Çevrimiçi sunucu adresi bu sürüme henüz tanımlanmadı.'}</Text>
           {(connection === 'error' || connection === 'opponent_left') && <OnlineButton label="Ana sayfaya dön" onPress={onBack} />}
         </View>
       )}

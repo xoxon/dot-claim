@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 
-import type { LeaderboardEntry, MatchHistoryItem, PlayerProfile } from './types';
+import type { DirectMessage, FriendInvite, FriendsPayload, LeaderboardEntry, MatchHistoryItem, PlayerProfile } from './types';
 
 export const MATCH_SERVER_URL = (process.env.EXPO_PUBLIC_MATCH_SERVER_URL ?? (__DEV__ ? 'http://127.0.0.1:3001' : '')).replace(/\/$/, '');
 
@@ -96,6 +96,64 @@ export async function fetchLeaderboard() {
 export async function fetchMatchHistory(token: string) {
   const response = await fetch(endpoint('/v1/me/matches?limit=8'), { headers: { Authorization: `Bearer ${token}` } });
   return (await parseResponse<{ matches: MatchHistoryItem[] }>(response)).matches;
+}
+
+export async function searchPlayers(token: string, query: string) {
+  const response = await fetch(endpoint(`/v1/users/search?q=${encodeURIComponent(query)}`), { headers: { Authorization: `Bearer ${token}` } });
+  return (await parseResponse<{ users: PlayerProfile[] }>(response)).users;
+}
+
+export async function fetchFriends(token: string) {
+  const response = await fetch(endpoint('/v1/me/friends'), { headers: { Authorization: `Bearer ${token}` } });
+  return await parseResponse<FriendsPayload>(response);
+}
+
+export async function sendFriendRequest(token: string, userId: string) {
+  const response = await fetch(endpoint('/v1/me/friend-requests'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  });
+  return await parseResponse<{ state: 'pending' | 'accepted'; friend: PlayerProfile }>(response);
+}
+
+export async function respondToFriendRequest(token: string, requesterId: string, action: 'accept' | 'decline') {
+  const response = await fetch(endpoint(`/v1/me/friend-requests/${encodeURIComponent(requesterId)}/${action}`), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return await parseResponse<{ state: 'accepted' | 'declined'; friend?: PlayerProfile }>(response);
+}
+
+export async function createFriendInvite(token: string, friendId: string, mode: FriendInvite['mode'], difficulty: FriendInvite['difficulty']) {
+  const response = await fetch(endpoint(`/v1/me/friends/${encodeURIComponent(friendId)}/invites`), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode, difficulty }),
+  });
+  return (await parseResponse<{ invite: FriendInvite }>(response)).invite;
+}
+
+export async function acceptFriendInvite(token: string, inviteId: string) {
+  const response = await fetch(endpoint(`/v1/me/invites/${encodeURIComponent(inviteId)}/accept`), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return (await parseResponse<{ invite: FriendInvite }>(response)).invite;
+}
+
+export async function fetchDirectMessages(token: string, friendId: string) {
+  const response = await fetch(endpoint(`/v1/me/friends/${encodeURIComponent(friendId)}/messages?limit=50`), { headers: { Authorization: `Bearer ${token}` } });
+  return (await parseResponse<{ messages: DirectMessage[] }>(response)).messages;
+}
+
+export async function sendDirectMessage(token: string, friendId: string, body: string) {
+  const response = await fetch(endpoint(`/v1/me/friends/${encodeURIComponent(friendId)}/messages`), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  });
+  return (await parseResponse<{ message: DirectMessage }>(response)).message;
 }
 
 export function resolveAvatarUrl(url: string | null) {

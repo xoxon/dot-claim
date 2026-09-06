@@ -45,3 +45,41 @@ export type MatchHistoryItem = {
   rewards: MatchReward | null;
   endedAt: string;
 };
+
+export type FriendEntry = {
+  friendshipId: string;
+  since: string;
+  profile: PlayerProfile;
+};
+
+export type FriendRequest = {
+  id: string;
+  createdAt: string;
+  profile: PlayerProfile;
+};
+
+export type FriendInvite = {
+  id: string;
+  mode: 'classic' | 'dice';
+  difficulty: 'easy' | 'normal' | 'hard';
+  state: 'pending' | 'accepted' | 'used' | 'expired' | 'declined';
+  createdAt: string;
+  expiresAt: string;
+  direction: 'incoming' | 'outgoing';
+  friend: PlayerProfile;
+};
+
+export type FriendsPayload = {
+  friends: FriendEntry[];
+  incomingRequests: FriendRequest[];
+  outgoingRequests: FriendRequest[];
+  invites: FriendInvite[];
+};
+
+export type DirectMessage = {
+  id: string;
+  senderId: string;
+  body: string;
+  sentAt: string;
+  readAt: string | null;
+};

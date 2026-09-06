@@ -7,6 +7,7 @@ import { useGameSounds } from './src/audio';
 import { GameBoard } from './src/components/GameBoard';
 import { OnlineMatchScreen } from './src/components/OnlineMatchScreen';
 import { ProfileScreen } from './src/components/ProfileScreen';
+import { FriendsScreen } from './src/components/FriendsScreen';
 import { GameBannerAd } from './src/ads/GameBannerAd';
 import { isUsingTestAds, prepareGoogleMobileAds, RewardedAdOffer, type RewardOffer, type RewardOfferTrigger } from './src/ads/RewardedAdOffer';
 import { useLevelInterstitial } from './src/ads/useOnlineInterstitial';
@@ -15,10 +16,10 @@ import { getLevelLabel } from './src/game/levels';
 import { loadStats, saveStats } from './src/storage';
 import { DEFAULT_STATS, type Difficulty, type GameState, type PlayerStats } from './src/game/types';
 import { loadAuthenticatedProfile } from './src/profile/api';
-import type { PlayerProfile } from './src/profile/types';
+import type { FriendInvite, PlayerProfile } from './src/profile/types';
 import type { OnlineMode } from './src/online/types';
 
-type Screen = 'home' | 'game' | 'online' | 'profile';
+type Screen = 'home' | 'game' | 'online' | 'profile' | 'friends';
 
 const DIFFICULTY_COPY: Record<Difficulty, { title: string; subtitle: string }> = {
   easy: { title: 'Rahat', subtitle: 'Daha geniş hamle hakkı' },
@@ -35,6 +36,7 @@ export default function App() {
   const [gameConfig, setGameConfig] = useState<{ level: number; isDaily: boolean }>({ level: 1, isDaily: false });
   const [onlineSession, setOnlineSession] = useState(0);
   const [onlineMode, setOnlineMode] = useState<OnlineMode>('classic');
+  const [friendInvite, setFriendInvite] = useState<FriendInvite | null>(null);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [account, setAccount] = useState<{ token: string; profile: PlayerProfile } | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -87,7 +89,16 @@ export default function App() {
   }, []);
 
   const startOnlineMatch = useCallback((mode: OnlineMode = 'classic') => {
+    setFriendInvite(null);
     setOnlineMode(mode);
+    setOnlineSession((current) => current + 1);
+    setScreen('online');
+  }, []);
+
+  const startFriendInvite = useCallback((invite: FriendInvite) => {
+    setFriendInvite(invite);
+    setOnlineMode(invite.mode);
+    setDifficulty(invite.difficulty);
     setOnlineSession((current) => current + 1);
     setScreen('online');
   }, []);
@@ -162,8 +173,9 @@ export default function App() {
             difficulty={difficulty}
               onDifficultyChange={setDifficulty}
               onStart={startGame}
-            onStartOnline={startOnlineMatch}
-            onOpenProfile={() => setScreen('profile')}
+              onStartOnline={startOnlineMatch}
+              onOpenFriends={() => setScreen('friends')}
+              onOpenProfile={() => setScreen('profile')}
               onOpenSettings={() => setSettingsVisible(true)}
             />
           ) : screen === 'game' ? (
@@ -183,17 +195,25 @@ export default function App() {
             <OnlineMatchScreen
               key={onlineSession}
               mode={onlineMode}
+              friendInvite={friendInvite}
               difficulty={difficulty}
               profile={account?.profile ?? null}
               token={account?.token ?? null}
               hapticsEnabled={stats.hapticsEnabled}
               soundEnabled={stats.soundEnabled}
-              onBack={() => setScreen('home')}
+              onBack={() => { setFriendInvite(null); setScreen('home'); }}
               onPlayAgain={() => startOnlineMatch(onlineMode)}
               onProfileUpdated={onProfileUpdated}
               hideBanner={Boolean(rewardOffer)}
             />
-          ) : account ? (
+          ) : screen === 'friends' && account ? (
+          <FriendsScreen
+            profile={account.profile}
+            token={account.token}
+            onBack={() => setScreen('home')}
+            onStartInvite={startFriendInvite}
+          />
+        ) : account ? (
           <ProfileScreen
             profile={account.profile}
             token={account.token}
@@ -236,13 +256,14 @@ export default function App() {
   );
 }
 
-function HomeScreen({ stats, profile, difficulty, onDifficultyChange, onStart, onStartOnline, onOpenProfile, onOpenSettings }: {
+function HomeScreen({ stats, profile, difficulty, onDifficultyChange, onStart, onStartOnline, onOpenFriends, onOpenProfile, onOpenSettings }: {
   stats: PlayerStats;
   profile: PlayerProfile | null;
   difficulty: Difficulty;
   onDifficultyChange: (difficulty: Difficulty) => void;
   onStart: (level: number, isDaily?: boolean) => void;
   onStartOnline: (mode: OnlineMode) => void;
+  onOpenFriends: () => void;
   onOpenProfile: () => void;
   onOpenSettings: () => void;
 }) {
@@ -256,6 +277,7 @@ function HomeScreen({ stats, profile, difficulty, onDifficultyChange, onStart, o
           <Text style={styles.homeTitle}>Noktaları bağla.{`\n`}Alanı sahiplen.</Text>
         </View>
         <View style={styles.homeActions}>
+          <IconButton label="Arkadaşlarını aç" symbol="♟" onPress={onOpenFriends} />
           <Pressable accessibilityRole="button" accessibilityLabel="Profilini aç" onPress={onOpenProfile} style={styles.profileButton}><Text style={styles.profileButtonText}>{profile ? profile.displayName.slice(0, 1).toLocaleUpperCase('tr-TR') : '●'}</Text></Pressable>
           <IconButton label="Ayarlar" symbol="⚙" onPress={onOpenSettings} />
         </View>
