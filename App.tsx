@@ -38,6 +38,7 @@ export default function App() {
   const [account, setAccount] = useState<{ token: string; profile: PlayerProfile } | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [rewardOffer, setRewardOffer] = useState<RewardOffer | null>(null);
+  const rewardAfterDismissRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     loadStats().then((stored) => {
@@ -90,8 +91,16 @@ export default function App() {
     setScreen('online');
   }, []);
 
-  const showRewardOffer = useCallback((trigger: RewardOfferTrigger) => {
+  const showRewardOffer = useCallback((trigger: RewardOfferTrigger, afterDismiss?: () => void) => {
+    rewardAfterDismissRef.current = afterDismiss ?? null;
     setRewardOffer((current) => current ?? { id: `${trigger}-${Date.now()}`, trigger });
+  }, []);
+
+  const dismissRewardOffer = useCallback(() => {
+    const afterDismiss = rewardAfterDismissRef.current;
+    rewardAfterDismissRef.current = null;
+    setRewardOffer(null);
+    if (afterDismiss) setTimeout(afterDismiss, 250);
   }, []);
 
   const onGameCompleted = useCallback((game: GameState) => {
@@ -129,9 +138,8 @@ export default function App() {
       lastDailyRewardOfferDate: dailyOfferDue ? today : current.lastDailyRewardOfferDate,
     };
     updateStats(() => next);
-    if (levelOfferDue) showRewardOffer('levels');
-    if (dailyOfferDue) showRewardOffer('daily');
-  }, [showRewardOffer, updateStats]);
+    return dailyOfferDue ? 'daily' : levelOfferDue ? 'levels' : null;
+  }, [updateStats]);
 
   const onProfileUpdated = useCallback((profile: PlayerProfile) => {
     setAccount((current) => current ? { ...current, profile } : current);
@@ -166,6 +174,7 @@ export default function App() {
               soundEnabled={stats.soundEnabled}
               onBack={() => setScreen('home')}
               onComplete={onGameCompleted}
+              onRewardOffer={showRewardOffer}
               onPlayAgain={() => startGame(gameConfig.level, gameConfig.isDaily)}
               hideBanner={Boolean(rewardOffer)}
             />
@@ -216,7 +225,7 @@ export default function App() {
         </SafeAreaView>
         <RewardedAdOffer
           offer={rewardOffer}
-          onDismiss={() => setRewardOffer(null)}
+          onDismiss={dismissRewardOffer}
           onRewardEarned={(offer, reward) => {
             Alert.alert('Test ödülü alındı', `${offer.trigger === 'manual' ? 'Test reklamı' : 'Ödüllü reklam'} tamamlandı: ${reward.amount} ${reward.type}. Gerçek oyun ödülünü sunucu doğrulamasına bağlamadan hesabına eklemeyeceğiz.`);
           }}
@@ -334,20 +343,23 @@ function HomeScreen({ stats, profile, difficulty, onDifficultyChange, onStart, o
   );
 }
 
-function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, onComplete, onPlayAgain, hideBanner }: {
+function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, onComplete, onRewardOffer, onPlayAgain, hideBanner }: {
   config: { level: number; isDaily: boolean };
   difficulty: Difficulty;
   hapticsEnabled: boolean;
   soundEnabled: boolean;
   onBack: () => void;
-  onComplete: (game: GameState) => void;
+  onComplete: (game: GameState) => RewardOfferTrigger | null;
+  onRewardOffer: (trigger: RewardOfferTrigger, afterDismiss: () => void) => void;
   onPlayAgain: () => void;
   hideBanner: boolean;
 }) {
   const { width } = useWindowDimensions();
   const [game, setGame] = useState(() => createGame(config.level, difficulty, config.isDaily));
   const [resultVisible, setResultVisible] = useState(false);
+  const [rewardDue, setRewardDue] = useState<RewardOfferTrigger | null>(null);
   const completedRef = useRef(false);
+  const resultActionRef = useRef(false);
   const boardSize = Math.min(Math.max(width - 32, 260), 500);
   const playSound = useGameSounds(soundEnabled);
 
@@ -373,7 +385,8 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
   useEffect(() => {
     if (!game.isComplete || completedRef.current) return;
     completedRef.current = true;
-    onComplete(game);
+    resultActionRef.current = false;
+    setRewardDue(onComplete(game));
     setResultVisible(true);
     haptic(game.playerScore > game.rivalScore ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light);
     playSound(game.playerScore > game.rivalScore ? 'victory' : 'defeat');
@@ -411,8 +424,27 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
 
   const restart = () => {
     completedRef.current = false;
+    resultActionRef.current = false;
+    setRewardDue(null);
     setResultVisible(false);
     setGame(createGame(config.level, difficulty, config.isDaily));
+  };
+
+  const continueAfterResult = (next: () => void) => {
+    if (resultActionRef.current) return;
+    resultActionRef.current = true;
+    const nextReward = rewardDue;
+    setRewardDue(null);
+    setResultVisible(false);
+
+    if (!nextReward) {
+      next();
+      return;
+    }
+
+    // Close the game-result Modal before mounting the reward Modal. iOS does
+    // not reliably dispatch touches through two overlapping React Native modals.
+    setTimeout(() => onRewardOffer(nextReward, next), 250);
   };
 
   return (
@@ -438,7 +470,7 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
       <View style={styles.legendRow}><Legend color={PLAYER_COLOR} label="Senin çizgilerin" /><Legend color={RIVAL_COLOR} label="Rakibin çizgileri" /></View>
       <GameBannerAd hidden={hideBanner || resultVisible} />
 
-      <Modal transparent animationType="fade" visible={resultVisible} onRequestClose={() => setResultVisible(false)}>
+      <Modal transparent animationType="fade" visible={resultVisible} onRequestClose={() => continueAfterResult(restart)}>
         <View style={styles.modalScrim}>
           <View style={styles.resultCard}>
             <Text style={styles.resultEmoji}>{game.playerScore > game.rivalScore ? '✦' : game.playerScore === game.rivalScore ? '≈' : '◌'}</Text>
@@ -446,8 +478,8 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
             <Text style={styles.resultText}>{status}</Text>
             <View style={styles.finalScore}><Text style={styles.finalScoreValue}>{game.playerScore}</Text><Text style={styles.finalScoreDivider}>:</Text><Text style={styles.finalScoreValue}>{game.rivalScore}</Text></View>
             <View style={styles.resultActions}>
-              <ResultActionButton label="Tekrar oyna" onPress={restart} />
-              <ResultActionButton label="Ana sayfa" onPress={onBack} />
+              <ResultActionButton label="Tekrar oyna" onPress={() => continueAfterResult(restart)} />
+              <ResultActionButton label="Ana sayfa" onPress={() => continueAfterResult(onBack)} />
             </View>
           </View>
         </View>
