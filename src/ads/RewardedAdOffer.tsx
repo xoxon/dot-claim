@@ -63,17 +63,21 @@ export function prepareGoogleMobileAds(): Promise<GoogleMobileAds | null> {
 
   mobileAdsInitialization = (async () => {
     const { AdsConsent, default: mobileAds } = googleMobileAds;
-    try {
-      await AdsConsent.gatherConsent();
-    } catch {
-      // The SDK may still have a valid consent choice from an earlier launch.
+    if (!isUsingTestAds) {
+      try {
+        await AdsConsent.gatherConsent();
+      } catch {
+        // The SDK may still have a valid consent choice from an earlier launch.
+      }
+
+      const consent = await AdsConsent.getConsentInfo();
+      if (!consent.canRequestAds) {
+        throw new Error('Reklam izni henüz tamamlanmadı.');
+      }
     }
 
-    const consent = await AdsConsent.getConsentInfo();
-    if (!consent.canRequestAds) {
-      throw new Error('Reklam izni henüz tamamlanmadı.');
-    }
-
+    // TestFlight test ads must not depend on a production UMP message being
+    // configured in AdMob. Production builds still perform the consent gate.
     await mobileAds().initialize();
     return googleMobileAds;
   })().catch((error) => {
