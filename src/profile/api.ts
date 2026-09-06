@@ -3,7 +3,12 @@ import * as SecureStore from 'expo-secure-store';
 
 import type { DirectMessage, FriendInvite, FriendsPayload, LeaderboardEntry, MatchHistoryItem, PlayerProfile } from './types';
 
-export const MATCH_SERVER_URL = (process.env.EXPO_PUBLIC_MATCH_SERVER_URL ?? (__DEV__ ? 'http://127.0.0.1:3001' : '')).replace(/\/$/, '');
+// Expo'nun geliştirme/simülatör çalıştırmaları için de canlı eşleşme
+// sunucusunu varsayılan yapıyoruz. 127.0.0.1 burada Mac'i ifade eder;
+// bu nedenle iOS simülatörü gerçek maç sunucusuna ulaşamazdı.
+export const MATCH_SERVER_URL = (
+  process.env.EXPO_PUBLIC_MATCH_SERVER_URL ?? 'https://match.barkodgenerator.com'
+).replace(/\/$/, '');
 
 const TOKEN_KEY = 'dot-claim.auth-token-v1';
 const DEVICE_KEY = 'dot-claim.device-id-v1';
