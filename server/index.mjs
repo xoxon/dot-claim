@@ -120,6 +120,8 @@ const inviteWaiting = new Map();
 const rooms = new Map();
 const socketRoom = new Map();
 const rateBuckets = new Map();
+const socketRateBuckets = new Map();
+const onlineSocketsByUser = new Map();
 const DOT_COLORS = ['#FF5D73', '#FFC857', '#3DD6B8', '#59B7FF', '#B27BFF', '#FF8C5A', '#F273D4'];
 const LAYOUTS = [
   [[16, 20], [50, 12], [84, 23], [26, 50], [65, 48], [16, 80], [50, 86], [85, 75]],
@@ -227,6 +229,72 @@ function normalizeMessage(value) {
   if (typeof value !== 'string') return null;
   const message = value.trim().replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
   return message.length >= 1 && message.length <= 500 ? message : null;
+}
+
+function userRoom(userId) {
+  return `user:${userId}`;
+}
+
+function friendIdsFor(userId) {
+  return database.prepare(`
+    SELECT CASE WHEN user_a_id = ? THEN user_b_id ELSE user_a_id END AS friend_id
+    FROM friendships
+    WHERE status = 'accepted' AND (user_a_id = ? OR user_b_id = ?)
+  `).all(userId, userId, userId).map((row) => row.friend_id);
+}
+
+function isUserOnline(userId) {
+  return (onlineSocketsByUser.get(userId)?.size ?? 0) > 0;
+}
+
+function publishPresence(userId, online) {
+  for (const friendId of friendIdsFor(userId)) {
+    io.to(userRoom(friendId)).emit('chat_presence', { friendId: userId, online });
+  }
+}
+
+function connectUserSocket(userId, socketId) {
+  const wasOnline = isUserOnline(userId);
+  const sockets = onlineSocketsByUser.get(userId) ?? new Set();
+  sockets.add(socketId);
+  onlineSocketsByUser.set(userId, sockets);
+  if (!wasOnline) publishPresence(userId, true);
+}
+
+function disconnectUserSocket(userId, socketId) {
+  const sockets = onlineSocketsByUser.get(userId);
+  if (!sockets) return;
+  sockets.delete(socketId);
+  if (sockets.size) return;
+  onlineSocketsByUser.delete(userId);
+  publishPresence(userId, false);
+}
+
+function messageView(message) {
+  return {
+    id: message.id,
+    senderId: message.sender_id,
+    body: message.body,
+    sentAt: message.sent_at,
+    readAt: message.read_at,
+  };
+}
+
+function publishDirectMessage(senderId, recipientId, message) {
+  const payload = messageView(message);
+  io.to(userRoom(senderId)).emit('chat_message', { friendId: recipientId, message: payload });
+  io.to(userRoom(recipientId)).emit('chat_message', { friendId: senderId, message: payload });
+}
+
+function markConversationRead(readerId, senderId) {
+  const readAt = now();
+  const result = database.prepare(`
+    UPDATE direct_messages
+    SET read_at = ?
+    WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL
+  `).run(readAt, senderId, readerId);
+  if (result.changes) io.to(userRoom(senderId)).emit('chat_read', { friendId: readerId, readAt });
+  return readAt;
 }
 
 function expireOldInvites() {
@@ -685,6 +753,18 @@ function rateLimit(request, response, bucket, maxRequests, windowMs = 60_000) {
   return false;
 }
 
+function socketRateLimit(socket, bucket, maxRequests, windowMs = 60_000) {
+  const key = `${bucket}:${socket.data.userId}`;
+  const current = socketRateBuckets.get(key) ?? { count: 0, resetAt: Date.now() + windowMs };
+  if (current.resetAt <= Date.now()) {
+    current.count = 0;
+    current.resetAt = Date.now() + windowMs;
+  }
+  current.count += 1;
+  socketRateBuckets.set(key, current);
+  return current.count <= maxRequests;
+}
+
 function avatarFormat(buffer) {
   if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return { extension: 'jpg', contentType: 'image/jpeg' };
   if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { extension: 'png', contentType: 'image/png' };
@@ -845,7 +925,7 @@ async function handleHttp(request, response) {
     if (request.method === 'GET') {
       const requested = Number(url.searchParams.get('limit') ?? 50);
       const limit = Number.isInteger(requested) ? Math.min(Math.max(requested, 1), 100) : 50;
-      database.prepare('UPDATE direct_messages SET read_at = ? WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL').run(now(), friendId, user.id);
+      markConversationRead(user.id, friendId);
       const rows = database.prepare(`
         SELECT * FROM direct_messages
         WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
@@ -866,7 +946,9 @@ async function handleHttp(request, response) {
       if (!message) return sendError(request, response, 400, 'Mesaj 1 ile 500 karakter arasında olmalı.');
       const created = { id: randomUUID(), sentAt: now() };
       database.prepare('INSERT INTO direct_messages (id, sender_id, recipient_id, body, sent_at) VALUES (?, ?, ?, ?, ?)').run(created.id, user.id, friendId, message, created.sentAt);
-      return sendJson(request, response, 201, { message: { id: created.id, senderId: user.id, body: message, sentAt: created.sentAt, readAt: null } });
+      const createdMessage = { id: created.id, sender_id: user.id, recipient_id: friendId, body: message, sent_at: created.sentAt, read_at: null };
+      publishDirectMessage(user.id, friendId, createdMessage);
+      return sendJson(request, response, 201, { message: messageView(createdMessage) });
     }
   }
 
@@ -999,6 +1081,30 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
+  const userId = socket.data.userId;
+  socket.join(userRoom(userId));
+  connectUserSocket(userId, socket.id);
+
+  socket.on('chat_join', ({ friendId } = {}, respond) => {
+    const reply = typeof respond === 'function' ? respond : () => undefined;
+    if (typeof friendId !== 'string' || !/^[0-9a-f-]{36}$/i.test(friendId) || !areFriends(userId, friendId)) {
+      reply({ ok: false, message: 'Bu sohbet artık kullanılamıyor.' });
+      return;
+    }
+    reply({ ok: true, friendOnline: isUserOnline(friendId) });
+  });
+
+  socket.on('chat_typing', ({ friendId, isTyping } = {}) => {
+    if (!socketRateLimit(socket, 'chat-typing', 120)) return;
+    if (typeof friendId !== 'string' || !areFriends(userId, friendId)) return;
+    socket.to(userRoom(friendId)).emit('chat_typing', { friendId: userId, isTyping: Boolean(isTyping) });
+  });
+
+  socket.on('chat_read', ({ friendId } = {}) => {
+    if (typeof friendId !== 'string' || !areFriends(userId, friendId)) return;
+    markConversationRead(userId, friendId);
+  });
+
   socket.on('find_match', ({ difficulty, mode } = {}) => {
     const selectedDifficulty = ['easy', 'normal', 'hard'].includes(difficulty) ? difficulty : 'normal';
     const selectedMode = mode === 'dice' ? 'dice' : 'classic';
@@ -1096,6 +1202,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    disconnectUserSocket(userId, socket.id);
     leaveWaiting(socket.id);
     leaveInviteWaiting(socket.id);
     const room = rooms.get(socketRoom.get(socket.id));
