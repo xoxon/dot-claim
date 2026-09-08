@@ -18,6 +18,8 @@ const AVATAR_DIRECTORY = resolve(process.env.AVATAR_DIRECTORY ?? join(SERVER_DIR
 const DATABASE_PATH = resolve(process.env.DATABASE_PATH ?? join(DATA_DIRECTORY, 'dot-claim.sqlite'));
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL ?? '').replace(/\/$/, '');
 const MAX_AVATAR_BYTES = Number(process.env.MAX_AVATAR_BYTES ?? 900_000);
+const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
+const EXPO_PUSH_ACCESS_TOKEN = process.env.EXPO_PUSH_ACCESS_TOKEN?.trim() ?? '';
 
 mkdirSync(DATA_DIRECTORY, { recursive: true });
 mkdirSync(AVATAR_DIRECTORY, { recursive: true });
@@ -102,6 +104,14 @@ database.exec(`
   );
   CREATE INDEX IF NOT EXISTS friend_invites_invitee_idx ON friend_invites(invitee_id, state, created_at DESC);
   CREATE INDEX IF NOT EXISTS friend_invites_inviter_idx ON friend_invites(inviter_id, state, created_at DESC);
+  CREATE TABLE IF NOT EXISTS push_tokens (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL CHECK (platform IN ('ios', 'android')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS push_tokens_user_idx ON push_tokens(user_id, updated_at DESC);
 `);
 
 const userColumns = database.prepare('PRAGMA table_info(users)').all();
@@ -284,6 +294,75 @@ function publishDirectMessage(senderId, recipientId, message) {
   const payload = messageView(message);
   io.to(userRoom(senderId)).emit('chat_message', { friendId: recipientId, message: payload });
   io.to(userRoom(recipientId)).emit('chat_message', { friendId: senderId, message: payload });
+}
+
+function normalizeExpoPushToken(value) {
+  if (typeof value !== 'string') return null;
+  const token = value.trim();
+  return /^(?:Expo|Exponent)PushToken\[[A-Za-z0-9_-]+\]$/.test(token) ? token : null;
+}
+
+function pushTokensFor(userId) {
+  return database.prepare('SELECT token FROM push_tokens WHERE user_id = ? ORDER BY updated_at DESC').all(userId).map((row) => row.token);
+}
+
+function sendExpoPushNotifications(messages) {
+  if (!messages.length) return;
+  for (let index = 0; index < messages.length; index += 100) {
+    sendExpoPushBatch(messages.slice(index, index + 100));
+  }
+}
+
+function sendExpoPushBatch(messages) {
+  void fetch(EXPO_PUSH_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Accept-Encoding': 'gzip, deflate',
+      'Content-Type': 'application/json',
+      ...(EXPO_PUSH_ACCESS_TOKEN ? { Authorization: `Bearer ${EXPO_PUSH_ACCESS_TOKEN}` } : {}),
+    },
+    body: JSON.stringify(messages),
+  }).then(async (response) => {
+    const result = await response.json().catch(() => null);
+    if (!response.ok) {
+      console.warn(`Expo push request failed: ${response.status}`);
+      return;
+    }
+    const tickets = Array.isArray(result?.data) ? result.data : [];
+    for (const [index, ticket] of tickets.entries()) {
+      if (ticket?.status === 'error' && ticket?.details?.error === 'DeviceNotRegistered') {
+        database.prepare('DELETE FROM push_tokens WHERE token = ?').run(messages[index]?.to);
+      }
+    }
+  }).catch((error) => {
+    console.warn('Expo push request could not be completed:', error instanceof Error ? error.message : error);
+  });
+}
+
+function notifyUser(userId, notification) {
+  const tokens = pushTokensFor(userId);
+  sendExpoPushNotifications(tokens.map((to) => ({
+    to,
+    sound: 'default',
+    title: 'Dot Claim',
+    ...notification,
+  })));
+}
+
+function notifyDirectMessage(recipientId, sender) {
+  notifyUser(recipientId, {
+    body: `${sender.display_name} sana mesaj gönderdi.`,
+    data: { type: 'chat', friendId: sender.id },
+  });
+}
+
+function notifyGameInvite(inviteeId, inviter, invite) {
+  const mode = invite.mode === 'dice' ? 'zarlı düello' : 'klasik düello';
+  notifyUser(inviteeId, {
+    body: `${inviter.display_name} seni ${mode}ya çağırdı.`,
+    data: { type: 'game_invite', inviteId: invite.id, friendId: inviter.id },
+  });
 }
 
 function markConversationRead(readerId, senderId) {
@@ -695,9 +774,10 @@ function privacyPage(response) {
       <li><strong>Profil verileri:</strong> Seçtiğiniz kullanıcı adı ve isteğe bağlı avatar fotoğrafı.</li>
       <li><strong>Oyun verileri:</strong> Çevrimiçi eşleşmeler, hamle sonuçları, skorlar, kupa, altın, XP ve maç geçmişi.</li>
       <li><strong>Sosyal veriler:</strong> Arkadaşlık istekleri, arkadaş listeniz, oyun davetleri ve yalnızca gönderdiğiniz metin mesajları.</li>
+      <li><strong>Bildirim cihazı bilgisi:</strong> Mesaj ve oyun daveti bildirimlerini gönderebilmek için cihazınıza ait bildirim anahtarı.</li>
     </ul>
     <h2>Neden işliyoruz?</h2>
-    <p>Bu veriler yalnızca kullanıcı profilini sağlamak, arkadaşlarınızı ve mesajlaşmayı işletmek, iki oyuncuyu eşleştirmek, oyunun sonucunu doğrulamak, sıralamayı göstermek ve hileyi önlemek için kullanılır. Reklam kimliği kullanılmaz, uygulama içi davranışınız başka uygulama veya sitelerde takip edilmez ve veriler satılmaz.</p>
+    <p>Bu veriler yalnızca kullanıcı profilini sağlamak, arkadaşlarınızı ve mesajlaşmayı işletmek, mesaj ve oyun daveti bildirimlerini göndermek, iki oyuncuyu eşleştirmek, oyunun sonucunu doğrulamak, sıralamayı göstermek ve hileyi önlemek için kullanılır. Reklam kimliği kullanılmaz, uygulama içi davranışınız başka uygulama veya sitelerde takip edilmez ve veriler satılmaz.</p>
     <h2>Kimler görebilir?</h2>
     <p>Çevrimiçi oynadığınız rakipler ve liderlik tablosunu görüntüleyen diğer oyuncular, kullanıcı adınızı, avatarınızı, liginizi ve oyunla ilgili genel istatistiklerinizi görebilir. Yalnızca kabul ettiğiniz arkadaşlarınızla birbirinize gönderdiğiniz metin mesajlarını görebilirsiniz. Avatarınız yalnızca siz yüklemeyi seçerseniz işlenir.</p>
     <h2>Saklama ve silme</h2>
@@ -948,6 +1028,7 @@ async function handleHttp(request, response) {
       database.prepare('INSERT INTO direct_messages (id, sender_id, recipient_id, body, sent_at) VALUES (?, ?, ?, ?, ?)').run(created.id, user.id, friendId, message, created.sentAt);
       const createdMessage = { id: created.id, sender_id: user.id, recipient_id: friendId, body: message, sent_at: created.sentAt, read_at: null };
       publishDirectMessage(user.id, friendId, createdMessage);
+      notifyDirectMessage(friendId, user);
       return sendJson(request, response, 201, { message: messageView(createdMessage) });
     }
   }
@@ -970,7 +1051,25 @@ async function handleHttp(request, response) {
       INSERT INTO friend_invites (id, inviter_id, invitee_id, mode, difficulty, state, created_at, expires_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(invite.id, invite.inviter_id, invite.invitee_id, invite.mode, invite.difficulty, invite.state, invite.created_at, invite.expires_at, invite.updated_at);
+    notifyGameInvite(inviteeId, user, invite);
     return sendJson(request, response, 201, { invite: inviteView(invite, user.id) });
+  }
+
+  if (request.method === 'POST' && url.pathname === '/v1/me/push-tokens') {
+    if (!rateLimit(request, response, 'push-token', 40)) return;
+    const user = requireAuthenticatedUser(request, response);
+    if (!user) return;
+    const body = await readJson(request, 8_000);
+    const token = normalizeExpoPushToken(body.token);
+    const platform = body.platform === 'android' ? 'android' : body.platform === 'ios' ? 'ios' : null;
+    if (!token || !platform) return sendError(request, response, 400, 'Geçerli bir bildirim cihazı kaydedilemedi.');
+    const time = now();
+    database.prepare(`
+      INSERT INTO push_tokens (token, user_id, platform, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(token) DO UPDATE SET user_id = excluded.user_id, platform = excluded.platform, updated_at = excluded.updated_at
+    `).run(token, user.id, platform, time, time);
+    return sendJson(request, response, 201, { ok: true });
   }
 
   const inviteAcceptMatch = url.pathname.match(/^\/v1\/me\/invites\/([0-9a-f-]{36})\/accept$/i);

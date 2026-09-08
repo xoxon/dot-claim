@@ -14,7 +14,8 @@ import { PLAYER_COLOR, RIVAL_COLOR, canConnect, createGame, pickRivalMove, playM
 import { getLevelLabel } from './src/game/levels';
 import { loadStats, saveStats } from './src/storage';
 import { DEFAULT_STATS, type Difficulty, type GameState, type PlayerStats } from './src/game/types';
-import { loadAuthenticatedProfile } from './src/profile/api';
+import { loadAuthenticatedProfile, registerPushToken } from './src/profile/api';
+import { getInitialPushTarget, registerForPushNotifications, subscribeToPushResponses, type PushTarget } from './src/notifications/push';
 import type { FriendInvite, PlayerProfile } from './src/profile/types';
 import type { OnlineMode } from './src/online/types';
 
@@ -65,6 +66,31 @@ export default function App() {
   useEffect(() => {
     void connectProfile();
   }, [connectProfile]);
+
+  const openPushTarget = useCallback((target: PushTarget) => {
+    setFriendInvite(null);
+    setScreen('friends');
+  }, []);
+
+  useEffect(() => {
+    void getInitialPushTarget().then((target) => {
+      if (target) openPushTarget(target);
+    }).catch(() => undefined);
+    const subscription = subscribeToPushResponses(openPushTarget);
+    return () => subscription.remove();
+  }, [openPushTarget]);
+
+  useEffect(() => {
+    if (!account) return;
+    let active = true;
+    void registerForPushNotifications().then((registration) => {
+      if (!active || !registration) return;
+      return registerPushToken(account.token, registration.token, registration.platform);
+    }).catch((error) => {
+      console.warn('Bildirimler etkinleştirilemedi:', error instanceof Error ? error.message : error);
+    });
+    return () => { active = false; };
+  }, [account?.token]);
 
   const updateStats = useCallback((updater: (current: PlayerStats) => PlayerStats) => {
     setStats((current) => {

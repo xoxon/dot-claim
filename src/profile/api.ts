@@ -161,6 +161,15 @@ export async function sendDirectMessage(token: string, friendId: string, body: s
   return (await parseResponse<{ message: DirectMessage }>(response)).message;
 }
 
+export async function registerPushToken(token: string, pushToken: string, platform: 'ios' | 'android') {
+  const response = await fetch(endpoint('/v1/me/push-tokens'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: pushToken, platform }),
+  });
+  return await parseResponse<{ ok: true }>(response);
+}
+
 export function resolveAvatarUrl(url: string | null) {
   if (!url || url.startsWith('http://') || url.startsWith('https://')) return url;
   return `${MATCH_SERVER_URL}${url}`;
