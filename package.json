@@ -10,7 +10,8 @@
     "web": "expo start --web",
     "server": "node server/index.mjs",
     "typecheck": "tsc --noEmit",
-    "assets:generate": "node scripts/generate-sounds.mjs"
+    "assets:generate": "node scripts/generate-sounds.mjs",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -39,6 +40,7 @@
     "@types/react": "~19.2.4",
     "eslint": "^9.35.0",
     "eslint-config-expo": "~57.0.2",
+    "patch-package": "^8.0.1",
     "typescript": "~6.0.3"
   }
 }
