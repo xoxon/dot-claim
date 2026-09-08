@@ -9,7 +9,7 @@ import { OnlineMatchScreen } from './src/components/OnlineMatchScreen';
 import { ProfileScreen } from './src/components/ProfileScreen';
 import { FriendsScreen } from './src/components/FriendsScreen';
 import { GameBannerAd } from './src/ads/GameBannerAd';
-import { isUsingTestAds, prepareGoogleMobileAds, RewardedAdOffer, type RewardOffer, type RewardOfferTrigger } from './src/ads/RewardedAdOffer';
+import { isUsingTestAds, RewardedAdOffer, type RewardOffer, type RewardOfferTrigger } from './src/ads/RewardedAdOffer';
 import { PLAYER_COLOR, RIVAL_COLOR, canConnect, createGame, pickRivalMove, playMove } from './src/game/engine';
 import { getLevelLabel } from './src/game/levels';
 import { loadStats, saveStats } from './src/storage';
@@ -65,13 +65,6 @@ export default function App() {
   useEffect(() => {
     void connectProfile();
   }, [connectProfile]);
-
-  useEffect(() => {
-    if (!ready) return;
-    void prepareGoogleMobileAds().catch((error) => {
-      console.warn('Reklam servisi başlatılamadı:', error);
-    });
-  }, [ready]);
 
   const updateStats = useCallback((updater: (current: PlayerStats) => PlayerStats) => {
     setStats((current) => {
