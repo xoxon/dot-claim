@@ -10,6 +10,7 @@ import { ProfileScreen } from './src/components/ProfileScreen';
 import { FriendsScreen } from './src/components/FriendsScreen';
 import { GameBannerAd } from './src/ads/GameBannerAd';
 import { isUsingTestAds, RewardedAdOffer, type RewardOffer, type RewardOfferTrigger } from './src/ads/RewardedAdOffer';
+import { useLevelInterstitial } from './src/ads/useOnlineInterstitial';
 import { PLAYER_COLOR, RIVAL_COLOR, canConnect, createGame, pickRivalMove, playMove } from './src/game/engine';
 import { getLevelLabel } from './src/game/levels';
 import { loadStats, saveStats } from './src/storage';
@@ -42,6 +43,9 @@ export default function App() {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [rewardOffer, setRewardOffer] = useState<RewardOffer | null>(null);
   const rewardAfterDismissRef = useRef<(() => void) | null>(null);
+  // Preload the native full-screen ad while the player is in the app. On every
+  // second completed level it is shown immediately before the result card.
+  const showLevelInterstitialThen = useLevelInterstitial();
 
   useEffect(() => {
     loadStats().then((stored) => {
@@ -205,6 +209,7 @@ export default function App() {
               soundEnabled={stats.soundEnabled}
               onBack={() => setScreen('home')}
               onComplete={onGameCompleted}
+              onLevelInterstitial={showLevelInterstitialThen}
               onRewardOffer={showRewardOffer}
               onPlayAgain={() => startGame(gameConfig.level, gameConfig.isDaily)}
               hideBanner={Boolean(rewardOffer)}
@@ -384,13 +389,14 @@ function HomeScreen({ stats, profile, difficulty, onDifficultyChange, onStart, o
   );
 }
 
-function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, onComplete, onRewardOffer, onPlayAgain, hideBanner }: {
+function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, onComplete, onLevelInterstitial, onRewardOffer, onPlayAgain, hideBanner }: {
   config: { level: number; isDaily: boolean };
   difficulty: Difficulty;
   hapticsEnabled: boolean;
   soundEnabled: boolean;
   onBack: () => void;
   onComplete: (game: GameState) => RewardOfferTrigger | null;
+  onLevelInterstitial: (afterAd: () => void) => void;
   onRewardOffer: (trigger: RewardOfferTrigger, afterDismiss: () => void) => void;
   onPlayAgain: () => void;
   hideBanner: boolean;
@@ -434,11 +440,20 @@ function GameScreen({ config, difficulty, hapticsEnabled, soundEnabled, onBack, 
     if (!game.isComplete || completedRef.current) return;
     completedRef.current = true;
     resultActionRef.current = false;
-    setRewardDue(onComplete(game));
-    setResultVisible(true);
+    const nextReward = onComplete(game);
+    // Level ads are interstitials, not optional rewarded offers. The player
+    // sees the native full-screen ad directly after every second completed
+    // level; only after it closes do we reveal the game result.
+    if (nextReward === 'levels') {
+      setRewardDue(null);
+      onLevelInterstitial(() => setResultVisible(true));
+    } else {
+      setRewardDue(nextReward);
+      setResultVisible(true);
+    }
     haptic(game.playerScore > game.rivalScore ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light);
     playSound(game.playerScore > game.rivalScore ? 'victory' : 'defeat');
-  }, [game, haptic, onComplete, playSound]);
+  }, [game, haptic, onComplete, onLevelInterstitial, playSound]);
 
   const status = useMemo(() => {
     if (game.isComplete) return game.playerScore > game.rivalScore ? 'Tahtayı sen aldın!' : game.playerScore === game.rivalScore ? 'Berabere kaldınız.' : 'Rakip bu turu aldı.';
